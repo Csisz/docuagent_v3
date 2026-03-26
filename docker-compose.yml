@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       docuagent
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - docuagent
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=Viktusz23
+      - WEBHOOK_URL=http://localhost:5678/
+      - EXECUTIONS_PROCESS=main
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - QDRANT_URL=http://qdrant:6333
+      - DOCUAGENT_API=http://backend:8000
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - docuagent
+    depends_on:
+      - qdrant
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - docuagent
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/docuagent
+      - QDRANT_URL=http://qdrant:6333
+      - N8N_BASE_URL=http://n8n:5678
+    volumes:
+      - ./backend/uploads:/app/uploads
+    networks:
+      - docuagent
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - docuagent
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  n8n_data:
+  qdrant_data:
+
+networks:
+  docuagent:
+    driver: bridge

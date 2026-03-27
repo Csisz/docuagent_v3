@@ -228,3 +228,18 @@ async def get_rag_stats(days: int = 7):
             WHERE created_at > NOW() - INTERVAL '{days} days'
             GROUP BY day ORDER BY day DESC"""
     )
+
+async def get_dashboard_layout(user_key: str = "default"):
+    return await db.fetchrow(
+        "SELECT layout FROM dashboard_layout WHERE user_key=$1", user_key
+    )
+
+async def upsert_dashboard_layout(user_key: str, layout: list):
+    import json as _json
+    await db.execute(
+        """INSERT INTO dashboard_layout(user_key, layout, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (user_key)
+           DO UPDATE SET layout=$2, updated_at=NOW()""",
+        user_key, _json.dumps(layout)
+    )

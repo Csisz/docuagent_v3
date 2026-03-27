@@ -3,3 +3,29 @@ dist/
 .env
 .env.local
 *.log
+__pycache__
+# env
+.env
+*.env
+backend/.env
+
+# python
+__pycache__/
+*.pyc
+
+# uploads
+backend/uploads/
+
+# node
+node_modules/
+
+# n8n / db
+.n8n/
+qdrant_data/
+n8n_data/
+backend/.env
+
+backend/__pycache__/
+backend/uploads/
+
+backend/.env

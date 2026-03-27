@@ -62,4 +62,11 @@ export const api = {
       headers: authHeaders(),
       signal: AbortSignal.timeout(90000),
     }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+
+  getDashboardLayout:  ()       => req('/api/dashboard/layout'),
+  saveDashboardLayout: (layout) => req('/api/dashboard/layout', {
+    method: 'POST',
+    body: JSON.stringify({ layout }),
+  }),
 }
+

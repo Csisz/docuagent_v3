@@ -173,7 +173,6 @@ async def health():
         "version": "3.2",
     }
 
-
 async def _check_n8n() -> bool:
     try:
         async with httpx.AsyncClient(timeout=3) as c:
@@ -207,3 +206,20 @@ async def rag_stats(days: int = 7, _auth=Security(require_api_key)):
             for r in (rows or [])
         ],
     }
+
+DEFAULT_LAYOUT = ["kpi_cards","status_cards","roi_card","charts","ai_panel","bottom_row"]
+
+@router.get("/dashboard/layout")
+async def get_layout(_auth=Security(require_api_key)):
+    row = await q.get_dashboard_layout("default")
+    if row:
+        import json as _json
+        layout = _json.loads(row["layout"]) if isinstance(row["layout"], str) else row["layout"]
+        return {"layout": layout}
+    return {"layout": DEFAULT_LAYOUT}
+
+@router.post("/dashboard/layout")
+async def save_layout(body: dict, _auth=Security(require_api_key)):
+    layout = body.get("layout", DEFAULT_LAYOUT)
+    await q.upsert_dashboard_layout("default", layout)
+    return {"ok": True, "layout": layout}

@@ -112,23 +112,29 @@ export default function Sidebar() {
         </nav>
 
         {/* Theme toggle */}
-        <div className="px-4 py-2.5 border-t border-white/7 flex items-center justify-between">
-          <div className="text-[10.5px] text-white/60 font-mono flex items-center gap-1.5">
-            <span>☀</span>
-            <span>{theme === 'dark' ? 'Dark' : 'Light'}</span>
-            <span>🌙</span>
-          </div>
+        <div className="px-4 py-2.5 border-t border-white/7">
           <button
             onClick={toggleTheme}
-            className={clsx(
-              'w-9 h-5 rounded-full relative transition-colors duration-200 border border-white/10',
-              theme === 'dark' ? 'bg-[#1a56db]' : 'bg-white/20'
-            )}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors duration-150 group"
           >
-            <span className={clsx(
-              'absolute top-0.5 w-3.5 h-3.5 rounded-full transition-transform duration-200 shadow-sm',
-              theme === 'dark' ? 'bg-white translate-x-4' : 'bg-[#1a56db] translate-x-0.5'
-            )} />
+            <span className="text-[13px] w-4 text-center leading-none">
+              {theme === 'dark' ? '🌙' : '☀️'}
+            </span>
+            <span className="text-[12px] text-white/50 font-mono flex-1 text-left group-hover:text-white/70 transition-colors">
+              {theme === 'dark' ? 'Dark' : 'Light'}
+            </span>
+            <div
+              onClick={e => { e.stopPropagation(); toggleTheme() }}
+              className={clsx(
+                'w-9 h-5 rounded-full relative transition-colors duration-200 flex-shrink-0 cursor-pointer',
+                theme === 'dark' ? 'bg-[#1a56db]' : 'bg-white/25'
+              )}
+            >
+              <span className={clsx(
+                'absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all duration-200 shadow-sm',
+                theme === 'dark' ? 'left-[19px]' : 'left-[3px]'
+              )} />
+            </div>
           </button>
         </div>
 

@@ -26,6 +26,7 @@ load_dotenv()
 DB_URL         = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/docuagent")
 QDRANT_URL     = os.getenv("QDRANT_URL",   "http://localhost:6333")
 N8N_BASE_URL   = os.getenv("N8N_BASE_URL", "http://localhost:5678")
+N8N_LABEL_WEBHOOK = os.getenv("N8N_LABEL_WEBHOOK", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 COMPANY_NAME   = os.getenv("COMPANY_NAME",   "Agentify Kft.")
 PORT           = int(os.getenv("PORT", "8000"))
@@ -78,6 +79,9 @@ class FeedbackRequest(BaseModel):
 
 class StatusUpdateRequest(BaseModel):
     status: str; note: Optional[str] = ""
+
+class RagRequest(BaseModel):
+    query: str
 
 async def db_fetch(q, *a):
     if not db_pool: return []
@@ -395,7 +399,7 @@ async def list_emails(status: Optional[str]=None, limit: int=50, offset: int=0):
 async def update_status(email_id: str, req: StatusUpdateRequest):
     valid = {"NEW","AI_ANSWERED","NEEDS_ATTENTION","CLOSED"}
     if req.status not in valid: raise HTTPException(400, f"Invalid: {valid}")
-    row = await db_fetchrow("SELECT status,ai_decision FROM emails WHERE id=$1", email_id)
+    row = await db_fetchrow("SELECT status,ai_decision,message_id FROM emails WHERE id=$1", email_id)
     if not row: raise HTTPException(404, "Not found")
     old = row["status"]
     ai  = json.dumps(row["ai_decision"]) if isinstance(row["ai_decision"],dict) else (row["ai_decision"] or old)
@@ -404,7 +408,62 @@ async def update_status(email_id: str, req: StatusUpdateRequest):
         await db_execute("INSERT INTO feedback(email_id,ai_decision,user_decision,note) VALUES($1,$2,$3,$4)",
                          email_id, ai, req.status, req.note or "")
         log.info(f"Learning: {email_id} {old} → {req.status}")
+        # Notify n8n to update Gmail label
+        if N8N_LABEL_WEBHOOK and row["message_id"]:
+            try:
+                async with httpx.AsyncClient(timeout=5) as c:
+                    await c.post(N8N_LABEL_WEBHOOK, json={
+                        "email_id": email_id,
+                        "gmail_message_id": row["message_id"],
+                        "old_status": old,
+                        "new_status": req.status
+                    })
+                log.info(f"n8n label webhook triggered: {row['message_id']} → {req.status}")
+            except Exception as e:
+                log.warning(f"n8n label webhook failed: {e}")
     return {"status":"ok","email_id":email_id,"new_status":req.status,"learning_stored":old!=req.status}
+
+
+@app.delete("/api/emails/{email_id}")
+async def delete_email(email_id: str):
+    row = await db_fetchrow("SELECT id FROM emails WHERE id=$1", email_id)
+    if not row: raise HTTPException(404, "Not found")
+    await db_execute("DELETE FROM feedback WHERE email_id=$1", email_id)
+    await db_execute("DELETE FROM emails WHERE id=$1", email_id)
+    log.info(f"Deleted email: {email_id}")
+    return {"status": "ok", "deleted": email_id}
+
+
+@app.delete("/api/emails")
+async def delete_emails_bulk(ids: list[str]):
+    deleted = 0
+    for email_id in ids:
+        await db_execute("DELETE FROM feedback WHERE email_id=$1", email_id)
+        result = await db_execute("DELETE FROM emails WHERE id=$1", email_id)
+        if result: deleted += 1
+    log.info(f"Bulk deleted {deleted} emails")
+    return {"status": "ok", "deleted": deleted}
+
+
+@app.delete("/api/emails/{email_id}")
+async def delete_email(email_id: str):
+    row = await db_fetchrow("SELECT id FROM emails WHERE id=$1", email_id)
+    if not row: raise HTTPException(404, "Not found")
+    await db_execute("DELETE FROM feedback WHERE email_id=$1", email_id)
+    await db_execute("DELETE FROM emails WHERE id=$1", email_id)
+    log.info(f"Deleted email: {email_id}")
+    return {"status": "ok", "deleted": email_id}
+
+
+@app.delete("/api/emails")
+async def delete_emails_bulk(ids: list[str]):
+    deleted = 0
+    for email_id in ids:
+        await db_execute("DELETE FROM feedback WHERE email_id=$1", email_id)
+        result = await db_execute("DELETE FROM emails WHERE id=$1", email_id)
+        if result: deleted += 1
+    log.info(f"Bulk deleted {deleted} emails")
+    return {"status": "ok", "deleted": deleted}
 
 
 @app.get("/api/ai-insights")
@@ -470,6 +529,84 @@ async def serve():
     return HTMLResponse("<h1>DocuAgent v3.1</h1><p><a href='/docs'>API Docs</a></p>")
 
 
+# ── RAG ───────────────────────────────────────────────────────
+async def query_qdrant(query_text: str):
+    async with httpx.AsyncClient(timeout=30) as client:
+        # embedding
+        emb = await client.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            json={"model": "text-embedding-3-small", "input": query_text[:8000]}
+        )
+        vector = emb.json()["data"][0]["embedding"]
+
+        # search Qdrant
+        res = await client.post(
+            f"{QDRANT_URL}/collections/documents/points/search",
+            json={
+                "vector": vector,
+                "limit": 3,
+                "with_payload": True
+            }
+        )
+        results = res.json().get("result", [])
+        return results
+
+
+@app.post("/rag/query")
+async def rag_query(req: RagRequest):
+    query = req.query
+
+    if not query:
+        return {"found": False, "answer": None}
+
+    if not OPENAI_API_KEY:
+        return {"found": False, "answer": None, "error": "No API key"}
+
+    try:
+        results = await query_qdrant(query)
+    except Exception as e:
+        log.warning(f"Qdrant query failed: {e}")
+        return {"found": False, "answer": None, "error": str(e)}
+
+    if not results:
+        return {"found": False, "answer": None}
+
+    # Csak a releváns találatok (score > 0.3)
+    relevant = [r for r in results if r.get("score", 0) > 0.3]
+    if not relevant:
+        return {"found": False, "answer": None}
+
+    contexts = [r["payload"]["text"] for r in relevant]
+    context_text = "\n\n---\n\n".join(contexts[:3])
+
+    prompt = f"""Az alábbi dokumentumok alapján válaszolj a kérdésre.
+Ha nincs releváns info, mondd hogy nincs adat.
+
+DOKUMENTUMOK:
+{context_text}
+
+KÉRDÉS:
+{query}
+"""
+
+    try:
+        answer = await openai_chat([
+            {"role": "system", "content": "Csak a megadott dokumentumok alapján válaszolj. Ha nincs releváns adat, mondd: Nincs elérhető dokumentum erről a témáról."},
+            {"role": "user", "content": prompt}
+        ], max_tokens=600)
+    except Exception as e:
+        log.warning(f"RAG openai_chat failed: {e}")
+        return {"found": False, "answer": None, "error": str(e)}
+
+    return {
+        "found": True,
+        "answer": answer,
+        "sources": len(relevant),
+        "top_score": round(relevant[0].get("score", 0), 3)
+    }
+
+
 async def _qdrant_count():
     try:
         async with httpx.AsyncClient(timeout=4) as c:
@@ -501,6 +638,7 @@ async def _store_in_qdrant(doc_id,filename,text,tag,dept,access,uploader):
             return r2.status_code==200
     except Exception as e: log.warning(f"Qdrant failed: {e}"); return False
 
+
 def _extract_text(path):
     ext=path.suffix.lower()
     try:
@@ -529,6 +667,9 @@ def _detect_lang(t):
     hu=sum(1 for w in ["és","a","az","hogy","van","nem"] if f" {w} " in t)
     de=sum(1 for w in ["und","die","der","das","ist","nicht"] if f" {w} " in t)
     return "HU" if hu>de else ("DE" if de>0 else "EN")
+
+
+
 
 
 if __name__=="__main__":

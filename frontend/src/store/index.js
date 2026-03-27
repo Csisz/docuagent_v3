@@ -38,4 +38,9 @@ export const useStore = create((set, get) => ({
   updateEmailStatus: (id, status) => set(s => ({
     emails: s.emails.map(e => e.id === id ? { ...e, status } : e)
   })),
+
+  deleteEmail: (id) => set(s => ({
+    emails: s.emails.filter(e => e.id !== id),
+    emailTotal: Math.max(0, s.emailTotal - 1)
+  })),
 }))

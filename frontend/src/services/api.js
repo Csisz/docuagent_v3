@@ -20,6 +20,9 @@ export const api = {
     return req(`/api/emails?${q}`)
   },
 
+  deleteEmail: (id) =>
+    req(`/api/emails/${id}`, { method: 'DELETE' }),
+
   updateStatus: (id, status, note = '') =>
     req(`/api/emails/${id}/status`, {
       method: 'PATCH',

@@ -40,10 +40,16 @@ async def insert_email(email_id: str, message_id: str, subject: str,
 
 async def update_email_classification(email_id: str, category: str,
                                        status: str, ai_decision: dict,
-                                       confidence: float, urgent: bool = False):
+                                       confidence: float,
+                                       urgency_score: int = 0,
+                                       sentiment: str = "neutral"):
     return await db.execute(
-        "UPDATE emails SET category=$1, status=$2, ai_decision=$3, confidence=$4, urgent=$5 WHERE id=$6",
-        category, status, json.dumps(ai_decision), confidence, urgent, email_id
+        """UPDATE emails
+           SET category=$1, status=$2, ai_decision=$3, confidence=$4,
+               urgency_score=$5, sentiment=$6
+           WHERE id=$7""",
+        category, status, json.dumps(ai_decision), confidence,
+        urgency_score, sentiment, email_id
     )
 
 
@@ -62,7 +68,9 @@ async def update_email_status(email_id: str, status: str):
 
 async def list_emails(status: Optional[str], limit: int, offset: int):
     fields = """id, subject, sender, body, category, status,
-                urgent, confidence, ai_response, ai_decision, created_at"""
+                urgent, confidence, ai_response, ai_decision, created_at,
+                COALESCE(urgency_score, 0) AS urgency_score,
+                COALESCE(sentiment, 'neutral') AS sentiment"""
     if status:
         rows = await db.fetch(
             f"SELECT {fields} FROM emails WHERE status=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
@@ -231,55 +239,24 @@ async def get_rag_stats(days: int = 7):
 
 
 # ══════════════════════════════════════════════════════════════
-# SYSTEM CONFIG  (v3.4)
+# CONFIG  (kulcs-érték tároló — SLA és egyéb beállításokhoz)
 # ══════════════════════════════════════════════════════════════
 
-async def get_config(key: str) -> Optional[str]:
-    row = await db.fetchrow("SELECT value FROM system_config WHERE key=$1", key)
-    return row["value"] if row else None
+async def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
+    """Visszaad egy config értéket kulcs alapján. Ha nincs, default-ot ad."""
+    row = await db.fetchrow(
+        "SELECT value FROM config WHERE key=$1", key
+    )
+    if row:
+        return row["value"]
+    return default
 
 
-async def set_config(key: str, value: str):
-    return await db.execute(
-        """INSERT INTO system_config (key, value, updated_at)
-           VALUES ($1, $2, NOW())
+async def set_config(key: str, value: str) -> None:
+    """Beállít vagy frissít egy config értéket (upsert)."""
+    await db.execute(
+        """INSERT INTO config (key, value)
+           VALUES ($1, $2)
            ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()""",
         key, value
-    )
-
-
-# ══════════════════════════════════════════════════════════════
-# SLA  (v3.4)
-# ══════════════════════════════════════════════════════════════
-
-async def get_sla_emails(warning_hours: float, breach_hours: float):
-    """Visszaadja a nyitott emaileket SLA státusszal."""
-    return await db.fetch(
-        """SELECT id, subject, sender, status, urgent, created_at,
-                  EXTRACT(EPOCH FROM (NOW() - created_at))/3600 AS age_hours
-           FROM emails
-           WHERE status IN ('NEW', 'NEEDS_ATTENTION')
-           ORDER BY created_at ASC"""
-    )
-
-
-async def get_sla_summary(warning_hours: float, breach_hours: float):
-    """SLA összesítő: ok / warning / breach számok."""
-    return await db.fetchrow(
-        """SELECT
-               COUNT(*) FILTER (
-                   WHERE status IN ('NEW','NEEDS_ATTENTION')
-                   AND EXTRACT(EPOCH FROM (NOW()-created_at))/3600 < $1
-               ) AS ok_count,
-               COUNT(*) FILTER (
-                   WHERE status IN ('NEW','NEEDS_ATTENTION')
-                   AND EXTRACT(EPOCH FROM (NOW()-created_at))/3600 >= $1
-                   AND EXTRACT(EPOCH FROM (NOW()-created_at))/3600 < $2
-               ) AS warning_count,
-               COUNT(*) FILTER (
-                   WHERE status IN ('NEW','NEEDS_ATTENTION')
-                   AND EXTRACT(EPOCH FROM (NOW()-created_at))/3600 >= $2
-               ) AS breach_count
-           FROM emails""",
-        warning_hours, breach_hours
     )

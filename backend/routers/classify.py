@@ -17,7 +17,7 @@ from services.file_service import detect_language
 import db.queries as q
 from models.schemas import (
     ClassifyRequest, ClassifyResponse, ReplyRequest,
-    EmailCategory, EmailStatus, AiDecision, SentimentLevel
+    EmailCategory, EmailStatus, AiDecision
 )
 from core.config import OPENAI_API_KEY, CONF_THRESHOLD, COMPANY_NAME
 
@@ -45,22 +45,28 @@ _LANG_INSTRUCTION = {
 _CLASSIFY_SYSTEM = """You are an expert email classifier for a customer service team.
 
 Classify the incoming email and respond ONLY with valid JSON:
-{{"can_answer": true/false, "confidence": 0.0-1.0, "category": "complaint|inquiry|other", "reason": "1 sentence", "sentiment": "angry|neutral|satisfied"}}
+{{"can_answer": true/false, "confidence": 0.0-1.0, "category": "complaint|inquiry|other", "reason": "1 sentence", "urgency_score": 0-100, "sentiment": "positive|neutral|negative|angry"}}
 
 Category rules:
 - "complaint": customer expresses dissatisfaction, reports a problem, requests refund/compensation
 - "inquiry":   customer asks a question, requests information, needs help or guidance
 - "other":     newsletter, spam, internal, out-of-scope
 
+Urgency score rules (0-100):
+- 0-20:  routine, no deadline, low stakes
+- 21-50: moderate, should be addressed today
+- 51-75: time-sensitive, references deadline or waiting
+- 76-100: critical — legal threat, service outage, VIP, explicit urgency ("sürgős", "azonnal", "urgent", "asap")
+
 Sentiment rules:
-- "angry":     hostile, frustrated, uses strong negative language, threats, caps lock, urgency
-- "satisfied": positive, grateful, complimentary tone
-- "neutral":   factual, calm, no strong emotion
+- "positive": satisfied, grateful, complimentary tone
+- "neutral":  factual, no strong emotion
+- "negative": frustrated, disappointed, complaining
+- "angry":    aggressive, threatening, uses strong language
 
 Decision rules:
 - can_answer=true ONLY IF: confidence >= {threshold} AND category != "complaint"
 - Complaints always → can_answer=false (need human empathy)
-- angry sentiment → can_answer=false, regardless of category
 - Uncertainty or ambiguity → lower confidence, can_answer=false
 - Short/vague emails → confidence max 0.65{feedback_ctx}"""
 
@@ -96,19 +102,16 @@ async def classify_email(req: ClassifyRequest):
         can      = forced == EmailStatus.AI_ANSWERED.value
         cat      = EmailCategory.COMPLAINT if forced == EmailStatus.NEEDS_ATTENTION.value else EmailCategory.INQUIRY
         status   = EmailStatus(forced)
-        sentiment = SentimentLevel.NEUTRAL
-        is_angry  = False
         decision = AiDecision(can_answer=can, confidence=conf,
-                              reason=f"learned sim={sim:.2f}", learned_override=True,
-                              sentiment=sentiment)
+                              reason=f"learned sim={sim:.2f}", learned_override=True)
         if req.email_id:
             await q.update_email_classification(
-                req.email_id, cat.value, status.value, decision.model_dump(), conf, urgent=is_angry
+                req.email_id, cat.value, status.value, decision.model_dump(), conf
             )
         log.info(f"Classify LEARNED: {req.subject[:40]} → {status} sim={sim:.3f}")
         return ClassifyResponse(can_answer=can, confidence=conf, category=cat,
                                 reason=f"Tanult egyezés ({sim:.0%})",
-                                status=status, learned_override=True, sentiment=sentiment)
+                                status=status, learned_override=True)
 
     # ── GPT osztályozás ────────────────────────────────────────
     sys_prompt = _CLASSIFY_SYSTEM.format(
@@ -126,36 +129,30 @@ async def classify_email(req: ClassifyRequest):
         conf   = round(float(p.get("confidence", 0.0)), 2)
         cat    = EmailCategory(p.get("category", "other"))
         reason = p.get("reason", "")
+        urgency_score = max(0, min(100, int(p.get("urgency_score", 0))))
+        sentiment     = p.get("sentiment", "neutral")
+        if sentiment not in ("positive", "neutral", "negative", "angry"):
+            sentiment = "neutral"
+        status = EmailStatus.AI_ANSWERED if (can and conf >= CONF_THRESHOLD) else EmailStatus.NEEDS_ATTENTION
 
-        # ── Sentiment detektálás ───────────────────────────────
-        raw_sentiment = p.get("sentiment", "neutral").lower()
-        sentiment = SentimentLevel(raw_sentiment) if raw_sentiment in SentimentLevel._value2member_map_ else SentimentLevel.NEUTRAL
-
-        # ── Dühös email → force NEEDS_ATTENTION + urgent ──────
-        is_angry = sentiment == SentimentLevel.ANGRY
-        if is_angry:
-            can    = False
-            status = EmailStatus.NEEDS_ATTENTION
-            log.info(f"Sentiment ANGRY → force NEEDS_ATTENTION + urgent: '{req.subject[:40]}'")
-        else:
-            status = EmailStatus.AI_ANSWERED if (can and conf >= CONF_THRESHOLD) else EmailStatus.NEEDS_ATTENTION
-
-        decision = AiDecision(can_answer=can, confidence=conf, reason=reason, sentiment=sentiment)
+        decision = AiDecision(can_answer=can, confidence=conf, reason=reason,
+                              urgency_score=urgency_score, sentiment=sentiment)
         if req.email_id:
             await q.update_email_classification(
-                req.email_id, cat.value, status.value, decision.model_dump(), conf, urgent=is_angry
+                req.email_id, cat.value, status.value, decision.model_dump(), conf,
+                urgency_score=urgency_score, sentiment=sentiment
             )
 
-        log.info(f"Classify GPT: '{req.subject[:40]}' → {status.value} conf={conf} sentiment={sentiment.value}")
+        log.info(f"Classify GPT: '{req.subject[:40]}' → {status.value} conf={conf} urgency={urgency_score} sentiment={sentiment}")
         return ClassifyResponse(can_answer=can, confidence=conf, category=cat,
-                                reason=reason, status=status, sentiment=sentiment)
+                                reason=reason, status=status,
+                                urgency_score=urgency_score, sentiment=sentiment)
 
     except Exception as e:
         log.error(f"Classify error: {e}")
         return ClassifyResponse(
             can_answer=False, confidence=0.0, category=EmailCategory.OTHER,
-            reason=str(e), status=EmailStatus.NEEDS_ATTENTION,
-            sentiment=SentimentLevel.NEUTRAL
+            reason=str(e), status=EmailStatus.NEEDS_ATTENTION
         )
 
 

@@ -26,12 +26,6 @@ class EmailCategory(str, Enum):
     OTHER      = "other"
 
 
-class SentimentLevel(str, Enum):
-    ANGRY     = "angry"
-    NEUTRAL   = "neutral"
-    SATISFIED = "satisfied"
-
-
 # ── AI döntés (tipizált JSONB) ────────────────────────────────
 
 class AiDecision(BaseModel):
@@ -40,7 +34,8 @@ class AiDecision(BaseModel):
     confidence:       float = Field(ge=0.0, le=1.0)
     reason:           str   = ""
     learned_override: bool  = False
-    sentiment:        SentimentLevel = SentimentLevel.NEUTRAL
+    urgency_score:    int   = Field(default=0, ge=0, le=100)
+    sentiment:        str   = "neutral"   # positive | neutral | negative | angry
 
 
 # ── Request modellek ──────────────────────────────────────────
@@ -98,8 +93,9 @@ class ClassifyResponse(BaseModel):
     category:         EmailCategory
     reason:           str
     status:           EmailStatus
-    learned_override: bool           = False
-    sentiment:        SentimentLevel = SentimentLevel.NEUTRAL
+    learned_override: bool = False
+    urgency_score:    int  = 0     # 0–100, AI által becsült sürgősség
+    sentiment:        str  = "neutral"  # positive | neutral | negative | angry
 
 
 # ── RAG request bővítés (v3.3) ────────────────────────────────

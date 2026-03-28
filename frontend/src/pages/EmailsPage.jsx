@@ -11,38 +11,6 @@ const FILTERS = [null, 'NEW', 'AI_ANSWERED', 'NEEDS_ATTENTION', 'CLOSED']
 const FILTER_LABELS = { null: 'Összes', NEW: 'NEW', AI_ANSWERED: 'AI_ANSWERED', NEEDS_ATTENTION: 'NEEDS_ATTENTION', CLOSED: 'CLOSED' }
 const STATUSES = ['NEW', 'AI_ANSWERED', 'NEEDS_ATTENTION', 'CLOSED']
 
-const SENTIMENT_CFG = {
-  angry:     { icon: '😠', label: 'Dühös',    cls: 'bg-red-500/15 text-red-400 border-red-400/25' },
-  neutral:   { icon: '😐', label: 'Semleges', cls: 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' },
-  satisfied: { icon: '😊', label: 'Elégedett',cls: 'bg-green-500/15 text-green-400 border-green-400/25' },
-}
-
-function SentimentBadge({ sentiment }) {
-  if (!sentiment || sentiment === 'neutral') return null
-  const cfg = SENTIMENT_CFG[sentiment] || SENTIMENT_CFG.neutral
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border ${cfg.cls}`}>
-      {cfg.icon} {cfg.label}
-    </span>
-  )
-}
-
-function SlaBadge({ createdAt, warningH, breachH }) {
-  if (!createdAt || !warningH) return null
-  const ageH = (Date.now() - new Date(createdAt).getTime()) / 3600000
-  if (ageH >= breachH) return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border bg-red-500/15 text-red-400 border-red-400/25">
-      🔴 {ageH.toFixed(1)}h
-    </span>
-  )
-  if (ageH >= warningH) return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border bg-amber-500/15 text-amber-400 border-amber-400/25">
-      ⚠ {ageH.toFixed(1)}h
-    </span>
-  )
-  return null
-}
-
 export default function EmailsPage({ defaultFilter }) {
   const location = useLocation()
   const { emails, emailTotal, setEmails, updateEmailStatus, deleteEmail, theme } = useStore()
@@ -60,12 +28,7 @@ export default function EmailsPage({ defaultFilter }) {
   const [activeFilter, setActiveFilter] = useState(
     location.state?.filter ?? defaultFilter ?? null
   )
-  const [slaConfig, setSlaConfig] = useState({ warning_hours: null, breach_hours: null })
   const didMount = useRef(false)
-
-  useEffect(() => {
-    api.getSlaConfig().then(cfg => setSlaConfig(cfg)).catch(() => {})
-  }, [])
 
   useEffect(() => { loadEmails(activeFilter) }, []) // eslint-disable-line
 
@@ -255,7 +218,7 @@ export default function EmailsPage({ defaultFilter }) {
                   />
                 </th>
                 <th className={clsx('px-2 py-2.5 w-9', isLight ? 'bg-slate-50' : 'bg-white/[.02]')} />
-                {['Tárgy', 'Feladó', 'Kategória', 'Státusz', 'Konf.', 'Dátum', 'Módosítás'].map(h => (
+                {['Tárgy', 'Feladó', 'Kategória', 'Státusz', 'Hangulat', 'Konf.', 'Dátum', 'Módosítás'].map(h => (
                   <th key={h} className={clsx('text-left px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[.08em] font-mono whitespace-nowrap', isLight ? 'bg-slate-50 text-slate-400' : 'bg-white/[.02] text-zinc-500')} style={h==='Státusz'?{minWidth:'160px'}:{}}>
                     {h}
                   </th>
@@ -266,13 +229,13 @@ export default function EmailsPage({ defaultFilter }) {
               {loading
                 ? Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className={clsx('border-b', isLight ? 'border-slate-100' : 'border-white/5')}>
-                    {Array.from({ length: 9 }).map((_, j) => (
+                    {Array.from({ length: 10 }).map((_, j) => (
                       <td key={j} className="px-3 py-2.5"><Skeleton className="h-3" /></td>
                     ))}
                   </tr>
                 ))
                 : emails.length === 0
-                ? <tr><td colSpan={9} className="text-center py-12 text-zinc-600">Nincs email</td></tr>
+                ? <tr><td colSpan={10} className="text-center py-12 text-zinc-600">Nincs email</td></tr>
                 : emails.map(e => (
                   <EmailRow
                     key={e.id}
@@ -284,7 +247,6 @@ export default function EmailsPage({ defaultFilter }) {
                     onStatusChange={handleStatusChange}
                     onDelete={handleDelete}
                     theme={theme}
-                    slaConfig={slaConfig}
                   />
                 ))
               }
@@ -305,13 +267,31 @@ export default function EmailsPage({ defaultFilter }) {
   )
 }
 
-function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusChange, onDelete, theme, slaConfig = {} }) {
+function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusChange, onDelete, theme }) {
   const isLight = theme === 'light'
   let aiD = {}
   try { aiD = typeof e.ai_decision === 'string' ? JSON.parse(e.ai_decision) : e.ai_decision || {} } catch {}
 
   const catColor = { complaint: 'text-red-400', inquiry: 'text-blue-400', other: 'text-zinc-500' }[e.category] || 'text-zinc-500'
   const dt = e.created_at ? new Date(e.created_at).toLocaleString('hu-HU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+
+  // ── Sentiment pill badge (A verzió — szöveges, emoji nélkül) ─
+  const sentimentData = {
+    positive: { label: 'positive', bg: isLight ? 'bg-green-50  border-green-300  text-green-700'  : 'bg-green-500/10  border-green-400/30  text-green-400',  title: 'Pozitív hangulat' },
+    neutral:  { label: 'neutral',  bg: isLight ? 'bg-slate-100 border-slate-300  text-slate-500'  : 'bg-white/5       border-white/15       text-zinc-500',   title: 'Semleges hangulat' },
+    negative: { label: 'negative', bg: isLight ? 'bg-amber-50  border-amber-300  text-amber-700'  : 'bg-amber-500/10  border-amber-400/30  text-amber-400',  title: 'Negatív hangulat' },
+    angry:    { label: 'angry',    bg: isLight ? 'bg-red-50    border-red-300    text-red-700'    : 'bg-red-500/10    border-red-400/30    text-red-400',    title: 'Dühös / fenyegető' },
+  }
+  const sentiment = e.sentiment || aiD.sentiment || 'neutral'
+  const sentInfo = sentimentData[sentiment] || sentimentData.neutral
+
+  // ── Urgency score szín ─────────────────────────────────────
+  const urgency = e.urgency_score ?? aiD.urgency_score ?? 0
+  const urgencyColor = urgency >= 76 ? 'text-red-400 bg-red-500/15 border-red-400/25'
+                     : urgency >= 51 ? 'text-amber-400 bg-amber-500/15 border-amber-400/25'
+                     : urgency >= 21 ? 'text-yellow-400 bg-yellow-500/10 border-yellow-400/20'
+                     : isLight       ? 'text-slate-400 bg-slate-100 border-slate-200'
+                                     : 'text-zinc-500 bg-white/5 border-white/10'
 
   const statusBadge = {
     NEW:             <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-400/20 whitespace-nowrap">NEW</span>,
@@ -362,15 +342,11 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
         </td>
 
         <td className="px-3 py-2.5 max-w-[200px]">
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5">
             {e.urgent && <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />}
             <span className={clsx('font-medium truncate', isLight ? 'text-slate-800' : '')}>{e.subject || '(nincs tárgy)'}</span>
             {aiD.learned_override && (
               <span className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-400/25 flex-shrink-0">🧠</span>
-            )}
-            <SentimentBadge sentiment={aiD.sentiment} />
-            {['NEW','NEEDS_ATTENTION'].includes(e.status) && (
-              <SlaBadge createdAt={e.created_at} warningH={slaConfig.warning_hours} breachH={slaConfig.breach_hours} />
             )}
           </div>
         </td>
@@ -381,6 +357,27 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
           <span className={clsx('text-[11px] font-mono', catColor)}>{e.category || '—'}</span>
         </td>
         <td className="px-3 py-2.5" style={{minWidth:'160px'}}>{statusBadge}</td>
+
+        {/* Sentiment pill + Urgency score oszlop */}
+        <td className="px-3 py-2.5">
+          <div className="flex items-center gap-1.5">
+            <span
+              title={sentInfo.title}
+              className={clsx('text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border whitespace-nowrap', sentInfo.bg)}
+            >
+              {sentInfo.label}
+            </span>
+            {urgency > 0 && (
+              <span
+                title={`Sürgősség: ${urgency}/100`}
+                className={clsx('text-[10px] font-bold font-mono px-1.5 py-0.5 rounded border whitespace-nowrap', urgencyColor)}
+              >
+                {urgency}
+              </span>
+            )}
+          </div>
+        </td>
+
         <td className="px-3 py-2.5"><ConfBar value={e.confidence} /></td>
         <td className="px-3 py-2.5">
           <span className={clsx('text-[11px] font-mono whitespace-nowrap', isLight ? 'text-slate-500' : 'text-zinc-500')}>{dt}</span>
@@ -426,11 +423,25 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
 
       {expanded && (
         <tr className={clsx('border-b', isLight ? 'border-slate-100' : 'border-white/5')}>
-          <td colSpan={9} className={clsx('px-4 py-3 border-t', isLight ? 'bg-orange-50 border-orange-200' : 'bg-orange-500/[.04] border-orange-400/15')}>
+          <td colSpan={10} className={clsx('px-4 py-3 border-t', isLight ? 'bg-orange-50 border-orange-200' : 'bg-orange-500/[.04] border-orange-400/15')}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <div className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em] mb-1', isLight ? 'text-slate-400' : 'text-zinc-500')}>Feladó</div>
                 <div className={clsx('text-[13px]', isLight ? 'text-slate-700' : 'text-zinc-300')}>{e.sender || '—'}</div>
+
+                {/* Sentiment + Urgency summary */}
+                <div className="flex items-center gap-2 mt-3 mb-1">
+                  <span className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em]', isLight ? 'text-slate-400' : 'text-zinc-500')}>AI elemzés</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span title={sentInfo.title} className={clsx('inline-flex items-center text-[11px] font-mono font-medium px-2 py-0.5 rounded border', sentInfo.bg)}>
+                    {sentInfo.label}
+                  </span>
+                  <span title={`Sürgősség: ${urgency}/100`} className={clsx('inline-flex items-center text-[11px] font-bold font-mono px-2 py-0.5 rounded border', urgencyColor)}>
+                    urgency {urgency}/100
+                  </span>
+                </div>
+
                 <div className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em] mt-3 mb-1', isLight ? 'text-slate-400' : 'text-zinc-500')}>AI döntés</div>
                 <pre className={clsx('text-[11px] font-mono rounded p-2 overflow-auto max-h-24', isLight ? 'bg-slate-100 text-slate-600 border border-slate-200' : 'bg-white/3 text-zinc-400')}>{JSON.stringify(aiD, null, 2)}</pre>
               </div>

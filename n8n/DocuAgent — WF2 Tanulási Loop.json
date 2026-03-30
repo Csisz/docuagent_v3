@@ -1,0 +1,445 @@
+{
+  "name": "DocuAgent — WF2 Tanulási Loop",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "cefd1a2f-0716-4fb5-b7bf-b41f40971015",
+      "name": "⏰ Időzítő (30 perc)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -784,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8000/api/dashboard",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "=ffcb7951773181f26585a65c074d848866b613bb1965bdde6914cd89c0fb65f7"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "73e9213e-9ed7-48a9-be3c-e7b27ef001b6",
+      "name": "📊 Backend Statisztikák",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -560,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8000/api/rag-stats?days=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "=ffcb7951773181f26585a65c074d848866b613bb1965bdde6914cd89c0fb65f7"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "69e29c63-22bb-499e-9ac6-3e2a3e763a64",
+      "name": "🔎 RAG Statisztikák",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -560,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst dash = $('📊 Backend Statisztikák').first().json;\nconst rag  = $('🔎 RAG Statisztikák').first().json;\n\nconst kpis    = dash.kpis    || {};\nconst status  = dash.status_breakdown || {};\nconst alerts  = dash.alerts  || [];\nconst ragSum  = rag.summary  || {};\n\nconst total       = kpis.emails?.value         || 0;\nconst ai_answered = kpis.ai_answered?.value    || 0;\nconst needs_att   = kpis.needs_attention?.value|| 0;\nconst feedback    = kpis.feedback_total?.value || 0;\nconst avg_conf    = kpis.avg_confidence?.value || 0;\n\nconst rag_total   = ragSum.total_queries    || 0;\nconst rag_fallback= ragSum.fallback_count   || 0;\nconst rag_rate    = ragSum.fallback_rate_pct|| 0;\n\nconst auto_rate   = total > 0 ? Math.round(ai_answered / total * 100) : 0;\nconst needs_rate  = total > 0 ? Math.round(needs_att   / total * 100) : 0;\n\n// Riport szöveg\nconst lines = [\n  `*📊 DocuAgent — Tanulási Riport*`,\n  `_${new Date().toLocaleString('hu-HU')}_`,\n  ``,\n  `*Email feldolgozás (utolsó 7 nap):*`,\n  `• Összes email: ${total}`,\n  `• AI által megválaszolva: ${ai_answered} (${auto_rate}%)`,\n  `• Figyelmet igényel: ${needs_att} (${needs_rate}%)`,\n  `• Átlag konfidencia: ${avg_conf}%`,\n  `• Feedback korrekciók: ${feedback}`,\n  ``,\n  `*RAG lekérdezések (ma):*`,\n  `• Összes: ${rag_total}`,\n  `• Fallback (nem talált): ${rag_fallback} (${rag_rate}%)`,\n];\n\nif (alerts.length > 0) {\n  lines.push('');\n  lines.push('*⚠️ Figyelmeztetések:*');\n  alerts.forEach(a => lines.push(`• ${a.message.replace(/<[^>]*>/g,'')}`));\n}\n\n// Tanulási ajánlások\nlines.push('');\nlines.push('*🧠 Tanulási állapot:*');\nif (feedback === 0) {\n  lines.push('• Még nincs feedback korrekció — a rendszer az alap promptot használja');\n} else if (feedback < 5) {\n  lines.push(`• ${feedback} korrekció rögzítve — tanulás beindult`);\n} else {\n  lines.push(`• ${feedback} korrekció rögzítve — aktív tanulási mód`);\n}\n\nif (rag_rate > 50) {\n  lines.push(`• ⚠️ Magas fallback arány (${rag_rate}%) — érdemes több dokumentumot feltölteni`);\n}\nif (auto_rate < 50 && total > 10) {\n  lines.push(`• ⚠️ Alacsony auto-válasz arány (${auto_rate}%) — ellenőrizd a confidence threshold-ot`);\n}\nif (auto_rate >= 80) {\n  lines.push(`• ✅ Kiváló automatizáltság (${auto_rate}%)`);\n}\n\nreturn [{\n  json: {\n    report_text: lines.join('\\n'),\n    stats: { total, ai_answered, needs_att, feedback, avg_conf, auto_rate, rag_total, rag_fallback, rag_rate },\n    has_alerts: alerts.length > 0,\n    needs_attention: needs_att > 0 || rag_rate > 50\n  }\n}];\n"
+      },
+      "id": "961b0c08-ec8c-4f51-be45-a5b7c10e500c",
+      "name": "🔀 Adatok Összefésülése",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-alert",
+              "leftValue": "={{ $json.needs_attention }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "49beb394-b7ff-4686-8e79-67e47cc68cbc",
+      "name": "⚡ Van figyelmeztetés?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        112,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "=https://docs.google.com/spreadsheets/d/1O7m67MEd0MScOntUzUyJwhnXgeJA0sdSVE4C_awYVu8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1060527472,
+          "mode": "list",
+          "cachedResultName": "Tanulási Loop",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1O7m67MEd0MScOntUzUyJwhnXgeJA0sdSVE4C_awYVu8/edit#gid=1060527472"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ok",
+              "displayName": "ok",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "channel",
+              "displayName": "channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "message_timestamp",
+              "displayName": "message_timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "cf3ebef9-3c77-4379-9a4e-0f395d53039b",
+      "name": "📊 Riport → Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        560,
+        64
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "cAOPh4Cw14zWIgrP",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "U0AP735R20M",
+          "mode": "list",
+          "cachedResultName": "huszarviktordev"
+        },
+        "text": "={{ $('🔀 Adatok Összefésülése').item.json.report_text }}",
+        "otherOptions": {}
+      },
+      "id": "4606760f-c0f4-4000-bca2-1eb4c6df924f",
+      "name": "🔔 Slack Riasztás",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        336,
+        -16
+      ],
+      "webhookId": "89303ca8-d9fa-445a-9a59-f95f55ef8915",
+      "credentials": {
+        "slackApi": {
+          "id": "ZOsy7uaqihu0yumo",
+          "name": "Slack Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8000/api/ai-insights",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "=ffcb7951773181f26585a65c074d848866b613bb1965bdde6914cd89c0fb65f7"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "90adf05c-da76-443f-a04a-aef0a982d887",
+      "name": "🧠 AI Insights Lekérés",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        784,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst insights = $input.first().json.ai || {};\nconst problems = (insights.problems || []).join('\\n• ');\nconst trends   = (insights.trends   || []).join('\\n• ');\nconst recs     = (insights.recommendations || []).join('\\n• ');\n\nconst text = [\n  '*🤖 AI Insights — Heti összefoglaló*',\n  '',\n  '*Problémák:*',\n  problems ? `• ${problems}` : '• Nincs azonosított probléma',\n  '',\n  '*Trendek:*',\n  trends ? `• ${trends}` : '• Nincs azonosított trend',\n  '',\n  '*Javaslatok:*',\n  recs ? `• ${recs}` : '• Nincs javaslat',\n].join('\\n');\n\nreturn [{ json: { insights_text: text } }];\n"
+      },
+      "id": "a9707e2c-ebf4-4ebb-8c2a-51b6373e6666",
+      "name": "💡 Insights Feldolgozás",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "select": "user",
+        "user": {
+          "__rl": true,
+          "value": "U0AP735R20M",
+          "mode": "list",
+          "cachedResultName": "huszarviktordev"
+        },
+        "text": "={{ $json.insights_text }}",
+        "otherOptions": {}
+      },
+      "id": "6108d9e7-bc27-4998-916e-a9eb3b6d6283",
+      "name": "📢 Slack AI Insights",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1232,
+        64
+      ],
+      "webhookId": "9fbe9a4b-3819-4f6f-9881-2c1c2840efdd",
+      "credentials": {
+        "slackApi": {
+          "id": "ZOsy7uaqihu0yumo",
+          "name": "Slack Bot"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -336,
+        64
+      ],
+      "id": "d2f0d84c-70f5-4bcb-bb0d-859dcc9fec86",
+      "name": "Merge"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "⏰ Időzítő (30 perc)": {
+      "main": [
+        [
+          {
+            "node": "📊 Backend Statisztikák",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "🔎 RAG Statisztikák",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Backend Statisztikák": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔀 Adatok Összefésülése": {
+      "main": [
+        [
+          {
+            "node": "⚡ Van figyelmeztetés?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚡ Van figyelmeztetés?": {
+      "main": [
+        [
+          {
+            "node": "🔔 Slack Riasztás",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📊 Riport → Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔔 Slack Riasztás": {
+      "main": [
+        [
+          {
+            "node": "📊 Riport → Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 AI Insights Lekérés": {
+      "main": [
+        [
+          {
+            "node": "💡 Insights Feldolgozás",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "💡 Insights Feldolgozás": {
+      "main": [
+        [
+          {
+            "node": "📢 Slack AI Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔎 RAG Statisztikák": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "🔀 Adatok Összefésülése",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Riport → Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "🧠 AI Insights Lekérés",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "06824f22-faff-4826-9d24-f3ee328f7d77",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8bafa9bdd0abfa809193773a3bf7283447413792ada4f07d6ba290a2f0c94165"
+  },
+  "id": "swi84WPoxr8EyNnq",
+  "tags": [
+    {
+      "updatedAt": "2026-03-24T20:04:00.171Z",
+      "createdAt": "2026-03-24T20:04:00.171Z",
+      "id": "pnjxmyXyOz3KSFbA",
+      "name": "DocuAgent"
+    }
+  ]
+}

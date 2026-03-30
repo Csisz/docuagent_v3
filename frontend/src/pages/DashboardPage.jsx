@@ -183,10 +183,11 @@ export default function DashboardPage() {
 }
 
 function SLACard() {
-  const [summary, setSummary] = useState(null)
-  const [config, setConfig]   = useState({ warning_hours: 4, breach_hours: 24 })
-  const [saving, setSaving]   = useState(false)
-  const [saved, setSaved]     = useState(false)
+  const [summary,    setSummary]    = useState(null)
+  const [config,     setConfig]     = useState({ warning_hours: 4, breach_hours: 24 })
+  const [saved,      setSaved]      = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
+  const debounceRef = useRef(null)
 
   useEffect(() => {
     api.getSlaConfig().then(setConfig).catch(() => {})
@@ -195,142 +196,228 @@ function SLACard() {
     return () => clearInterval(iv)
   }, [])
 
-  async function handleSave() {
-    setSaving(true)
-    try {
-      await api.setSlaConfig(config)
-      const s = await api.getSlaSummary()
-      setSummary(s)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } catch {}
-    finally { setSaving(false) }
+  function updateConfig(patch) {
+    const next = { ...config, ...patch }
+    setConfig(next)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        await api.setSlaConfig(next)
+        const s = await api.getSlaSummary()
+        setSummary(s)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 1500)
+      } catch {}
+    }, 800)
   }
 
-  const sl = `w-full h-1 rounded-full appearance-none cursor-pointer bg-white/10
-    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
-    [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
-    [&::-webkit-slider-thumb]:bg-[#ff7820] [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(255,120,32,.6)]
-    [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5
+  const sl = `w-full h-2 rounded-full appearance-none cursor-pointer
+    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4
+    [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
+    [&::-webkit-slider-thumb]:bg-[#ff7820] [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(255,120,32,.7)]
+    [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white/20
+    [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4
     [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-[#ff7820] [&::-moz-range-thumb]:border-none`
+
+  const breach = summary?.breach_count ?? null
 
   return (
     <div className="glass-card">
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-[13px] font-semibold">SLA Monitor</h3>
-          <p className="text-[10px] text-zinc-500 font-mono mt-0.5">Válaszidő tracking — nyitott emailek</p>
+          <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+            Válaszidő tracking — warning: {config.warning_hours}h · breach: {config.breach_hours}h
+          </p>
         </div>
-        <span className="text-[9.5px] font-bold font-mono px-2 py-1 rounded bg-blue-500/15 text-blue-400 border border-blue-400/20">⏱ ÉLŐBEN</span>
+        <div className="flex items-center gap-2">
+          {breach > 0 && (
+            <span className="text-[9.5px] font-bold font-mono px-2 py-1 rounded bg-red-500/15 text-red-400 border border-red-400/25 animate-pulse">
+              {breach} LEJÁRT
+            </span>
+          )}
+          {saved && (
+            <span className="text-[9.5px] font-mono text-green-400 transition-opacity">✓ Mentve</span>
+          )}
+          <span className="text-[9.5px] font-bold font-mono px-2 py-1 rounded bg-blue-500/15 text-blue-400 border border-blue-400/20">⏱ ÉLŐBEN</span>
+          <button
+            onClick={() => setShowConfig(v => !v)}
+            title="SLA határok beállítása"
+            className={clsx(
+              'w-7 h-7 rounded-lg flex items-center justify-center transition-all border text-[13px]',
+              showConfig
+                ? 'bg-orange-500/20 border-orange-400/40 text-orange-400'
+                : 'bg-white/5 border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-400/30'
+            )}
+          >⚙</button>
+        </div>
       </div>
 
       {/* Summary counters */}
-      <div className="flex gap-3 mb-5">
-        <div className="flex-1 bg-green-500/[.07] border border-green-400/15 rounded-xl px-4 py-3 text-center">
-          <div className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest mb-1">OK</div>
-          <div className="text-2xl font-bold text-green-400">{summary?.ok_count ?? '—'}</div>
+      <div className="flex gap-3 mb-4">
+        <div className="flex-1 bg-green-500/[.07] border border-green-400/20 rounded-xl px-4 py-3 text-center">
+          <div className="text-[9px] text-green-600 dark:text-green-500 font-mono uppercase tracking-widest mb-1 font-semibold">OK</div>
+          <div className="text-2xl font-bold text-green-500 dark:text-green-400">{summary?.ok_count ?? '—'}</div>
         </div>
-        <div className="flex-1 bg-amber-500/[.07] border border-amber-400/15 rounded-xl px-4 py-3 text-center">
-          <div className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest mb-1">Figyelmeztetés</div>
-          <div className="text-2xl font-bold text-amber-400">{summary?.warning_count ?? '—'}</div>
+        <div className="flex-1 bg-amber-500/[.07] border border-amber-400/20 rounded-xl px-4 py-3 text-center">
+          <div className="text-[9px] text-amber-600 dark:text-amber-500 font-mono uppercase tracking-widest mb-1 font-semibold">Figyelmeztetés</div>
+          <div className="text-2xl font-bold text-amber-500 dark:text-amber-400">{summary?.warning_count ?? '—'}</div>
         </div>
-        <div className="flex-1 bg-red-500/[.07] border border-red-400/15 rounded-xl px-4 py-3 text-center">
-          <div className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest mb-1">Lejárt</div>
-          <div className="text-2xl font-bold text-red-400">{summary?.breach_count ?? '—'}</div>
-        </div>
-      </div>
-
-      {/* Sliders */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-        <div>
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[11px] text-zinc-400">Figyelmeztetés határidő</span>
-            <span className="text-[11px] font-mono text-amber-400">{config.warning_hours} óra</span>
-          </div>
-          <input type="range" min={1} max={23} step={1} value={config.warning_hours}
-            onChange={e => setConfig(c => ({ ...c, warning_hours: +e.target.value < c.breach_hours ? +e.target.value : c.warning_hours }))}
-            className={sl} />
-          <div className="flex justify-between text-[9px] text-zinc-600 font-mono mt-1"><span>1h</span><span>23h</span></div>
-        </div>
-        <div>
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[11px] text-zinc-400">SLA megsértés határidő</span>
-            <span className="text-[11px] font-mono text-red-400">{config.breach_hours} óra</span>
-          </div>
-          <input type="range" min={2} max={72} step={1} value={config.breach_hours}
-            onChange={e => setConfig(c => ({ ...c, breach_hours: +e.target.value > c.warning_hours ? +e.target.value : c.breach_hours }))}
-            className={sl} />
-          <div className="flex justify-between text-[9px] text-zinc-600 font-mono mt-1"><span>2h</span><span>72h</span></div>
+        <div className="flex-1 bg-red-500/[.07] border border-red-400/20 rounded-xl px-4 py-3 text-center">
+          <div className="text-[9px] text-red-600 dark:text-red-500 font-mono uppercase tracking-widest mb-1 font-semibold">Lejárt</div>
+          <div className="text-2xl font-bold text-red-500 dark:text-red-400">{summary?.breach_count ?? '—'}</div>
         </div>
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="w-full text-[12px] font-mono py-2 rounded-lg bg-[#ff7820] hover:bg-[#e56a1a] disabled:opacity-50 text-white font-semibold transition-colors"
-      >
-        {saved ? '✓ Mentve' : saving ? 'Mentés…' : 'SLA határok mentése'}
-      </button>
+      {/* Collapsible config panel */}
+      {showConfig && (
+        <div className="border-t border-slate-200 dark:border-white/8 pt-4 mt-1">
+          <p className="text-[10px] font-mono text-zinc-500 mb-3 uppercase tracking-widest">SLA határok — automatikusan ment</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <div className="flex justify-between mb-2">
+                <span className="text-[11px] text-slate-600 dark:text-zinc-400">Figyelmeztetés határidő</span>
+                <span className="text-[11px] font-mono font-bold text-amber-500 dark:text-amber-400">{config.warning_hours} óra</span>
+              </div>
+              <input type="range" min={1} max={23} step={1} value={config.warning_hours}
+                onChange={e => {
+                  const v = +e.target.value
+                  if (v < config.breach_hours) updateConfig({ warning_hours: v })
+                }}
+                className={sl} style={{background:'#e2e8f0'}} />
+              <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>1h</span><span>23h</span></div>
+            </div>
+            <div>
+              <div className="flex justify-between mb-2">
+                <span className="text-[11px] text-slate-600 dark:text-zinc-400">SLA megsértés határidő</span>
+                <span className="text-[11px] font-mono font-bold text-red-500 dark:text-red-400">{config.breach_hours} óra</span>
+              </div>
+              <input type="range" min={2} max={72} step={1} value={config.breach_hours}
+                onChange={e => {
+                  const v = +e.target.value
+                  if (v > config.warning_hours) updateConfig({ breach_hours: v })
+                }}
+                className={sl} style={{background:'#e2e8f0'}} />
+              <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>2h</span><span>72h</span></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 
 function ROICard({ aiAnswered }) {
-  const [hourlyRate, setHourlyRate]           = useState(5000)
-  const [minutesPerEmail, setMinutesPerEmail] = useState(12)
+  const [hourlyRate,      setHourlyRate]      = useState(() => {
+    try { return Number(localStorage.getItem('roi_hourly_rate'))      || 5000 } catch { return 5000 }
+  })
+  const [minutesPerEmail, setMinutesPerEmail] = useState(() => {
+    try { return Number(localStorage.getItem('roi_minutes_per_email')) || 12   } catch { return 12   }
+  })
+  const [showConfig, setShowConfig] = useState(false)
+
+  function updateHourlyRate(v) {
+    setHourlyRate(v)
+    try { localStorage.setItem('roi_hourly_rate', v) } catch {}
+  }
+  function updateMinutes(v) {
+    setMinutesPerEmail(v)
+    try { localStorage.setItem('roi_minutes_per_email', v) } catch {}
+  }
+
   const count    = aiAnswered ?? 0
   const hours    = (count * minutesPerEmail) / 60
   const savedHuf = Math.round(hours * hourlyRate)
   const savedFmt = savedHuf.toLocaleString('hu-HU')
-  const sl = `w-full h-1 rounded-full appearance-none cursor-pointer bg-white/10
-    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5
-    [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full
-    [&::-webkit-slider-thumb]:bg-[#ff7820] [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(255,120,32,.6)]
-    [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5
+
+  const sl = `w-full h-2 rounded-full appearance-none cursor-pointer
+    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4
+    [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
+    [&::-webkit-slider-thumb]:bg-[#ff7820] [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(255,120,32,.7)]
+    [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white/20
+    [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4
     [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-[#ff7820] [&::-moz-range-thumb]:border-none`
+
   return (
     <div className="glass-card">
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-[13px] font-semibold">ROI Kalkulátor</h3>
-          <p className="text-[10px] text-zinc-500 font-mono mt-0.5">Az AI által megtakarított idő és költség</p>
+          <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+            Az AI által megtakarított idő és költség
+          </p>
         </div>
-        <span className="text-[9.5px] font-bold font-mono px-2 py-1 rounded bg-green-500/15 text-green-400 border border-green-400/20">⚡ ÉLŐBEN</span>
-      </div>
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        <div className="flex-1 bg-green-500/[.07] border border-green-400/15 rounded-xl px-5 py-4 text-center">
-          <div className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mb-1">Megtakarított idő</div>
-          <div className="text-3xl font-bold text-green-400 tracking-tight">{hours.toFixed(1)} h</div>
-          <div className="text-[10px] text-zinc-500 font-mono mt-1">{count} email × {minutesPerEmail} perc</div>
-        </div>
-        <div className="flex-1 bg-[#ff7820]/[.07] border border-[#ff7820]/20 rounded-xl px-5 py-4 text-center">
-          <div className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mb-1">Pénzben kifejezve</div>
-          <div className="text-3xl font-bold text-[#ff7820] tracking-tight">{savedFmt} Ft</div>
-          <div className="text-[10px] text-zinc-500 font-mono mt-1">{hourlyRate.toLocaleString('hu-HU')} Ft/óra</div>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[11px] text-zinc-400">Válaszidő emailenként</span>
-            <span className="text-[11px] font-mono text-[#ff7820]">{minutesPerEmail} perc</span>
-          </div>
-          <input type="range" min={3} max={60} step={1} value={minutesPerEmail} onChange={e=>setMinutesPerEmail(+e.target.value)} className={sl} />
-          <div className="flex justify-between text-[9px] text-zinc-600 font-mono mt-1"><span>3 perc</span><span>60 perc</span></div>
-        </div>
-        <div>
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[11px] text-zinc-400">Munkaerő-költség</span>
-            <span className="text-[11px] font-mono text-[#ff7820]">{hourlyRate.toLocaleString('hu-HU')} Ft/h</span>
-          </div>
-          <input type="range" min={2000} max={15000} step={500} value={hourlyRate} onChange={e=>setHourlyRate(+e.target.value)} className={sl} />
-          <div className="flex justify-between text-[9px] text-zinc-600 font-mono mt-1"><span>2 000 Ft</span><span>15 000 Ft</span></div>
+        <div className="flex items-center gap-2">
+          <span className="text-[9.5px] font-bold font-mono px-2 py-1 rounded bg-green-500/15 text-green-600 dark:text-green-400 border border-green-400/25">⚡ ÉLŐBEN</span>
+          <button
+            onClick={() => setShowConfig(v => !v)}
+            title="Kalkulátor beállítása"
+            className={clsx(
+              'w-7 h-7 rounded-lg flex items-center justify-center transition-all border text-[13px]',
+              showConfig
+                ? 'bg-orange-500/20 border-orange-400/40 text-orange-400'
+                : 'bg-white/5 border-white/10 text-zinc-400 hover:text-orange-400 hover:border-orange-400/30'
+            )}
+          >⚙</button>
         </div>
       </div>
+
+      {/* Summary boxes */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="flex-1 rounded-xl px-5 py-4 text-center border"
+             style={{background:'color-mix(in srgb, #22c55e 8%, transparent)', borderColor:'color-mix(in srgb, #22c55e 25%, transparent)'}}>
+          <div className="text-[10px] font-mono uppercase tracking-widest mb-1 font-semibold text-green-600 dark:text-green-500">Megtakarított idő</div>
+          <div className="text-3xl font-bold tracking-tight text-green-600 dark:text-green-400">{hours.toFixed(1)} h</div>
+          <div className="text-[10px] font-mono mt-1 text-green-800/50 dark:text-zinc-500">{count} email × {minutesPerEmail} perc</div>
+        </div>
+        <div className="flex-1 rounded-xl px-5 py-4 text-center border"
+             style={{background:'color-mix(in srgb, #ff7820 8%, transparent)', borderColor:'color-mix(in srgb, #ff7820 25%, transparent)'}}>
+          <div className="text-[10px] font-mono uppercase tracking-widest mb-1 font-semibold text-orange-700 dark:text-orange-400">Pénzben kifejezve</div>
+          <div className="text-3xl font-bold tracking-tight text-orange-700 dark:text-[#ff7820]">{savedFmt} Ft</div>
+          <div className="text-[10px] font-mono mt-1 text-orange-800/50 dark:text-zinc-500">{hourlyRate.toLocaleString('hu-HU')} Ft/óra</div>
+        </div>
+      </div>
+
+      {/* Footer összefoglaló mondat */}
       {count > 0 && (
-        <div className="mt-4 text-center text-[11.5px] text-zinc-500 border-t border-white/5 pt-3">
-          Az AI eddig <span className="text-green-400 font-semibold">{savedFmt} Ft</span> értékű munkát vett le a csapatodról.
+        <div className={clsx(
+          'text-center text-[11.5px] border-t pt-3 mb-1',
+          showConfig ? 'mb-4' : '',
+          'text-slate-500 dark:text-zinc-500 border-slate-200 dark:border-white/5'
+        )}>
+          Az AI eddig{' '}
+          <span className="text-green-600 dark:text-green-400 font-semibold">{savedFmt} Ft</span>{' '}
+          értékű munkát vett le a csapatodról.
+        </div>
+      )}
+
+      {/* Collapsible config panel */}
+      {showConfig && (
+        <div className="border-t border-slate-200 dark:border-white/8 pt-4">
+          <p className="text-[10px] font-mono text-zinc-500 mb-3 uppercase tracking-widest">Kalkulátor paraméterei</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <div className="flex justify-between mb-2">
+                <span className="text-[11px] text-slate-600 dark:text-zinc-400">Válaszidő emailenként</span>
+                <span className="text-[11px] font-mono font-bold text-[#e06010] dark:text-[#ff7820]">{minutesPerEmail} perc</span>
+              </div>
+              <input type="range" min={3} max={60} step={1} value={minutesPerEmail}
+                onChange={e => updateMinutes(+e.target.value)} className={sl} style={{background:'#e2e8f0'}} />
+              <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>3 perc</span><span>60 perc</span></div>
+            </div>
+            <div>
+              <div className="flex justify-between mb-2">
+                <span className="text-[11px] text-slate-600 dark:text-zinc-400">Munkaerő-költség</span>
+                <span className="text-[11px] font-mono font-bold text-[#e06010] dark:text-[#ff7820]">{hourlyRate.toLocaleString('hu-HU')} Ft/h</span>
+              </div>
+              <input type="range" min={2000} max={15000} step={500} value={hourlyRate}
+                onChange={e => updateHourlyRate(+e.target.value)} className={sl} style={{background:'#e2e8f0'}} />
+              <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>2 000 Ft</span><span>15 000 Ft</span></div>
+            </div>
+          </div>
         </div>
       )}
     </div>

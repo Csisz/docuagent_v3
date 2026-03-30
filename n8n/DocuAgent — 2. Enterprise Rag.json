@@ -1,0 +1,715 @@
+{
+  "name": "DocuAgent — 2. Enterprise Rag",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ask",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "58b5739d-5b11-462b-9d76-a18e0e7348ea",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -2000,
+        160
+      ],
+      "typeVersion": 2,
+      "webhookId": "08e53d56-e358-479c-8246-b056fc79d2aa",
+      "notes": "POST /webhook/ask\nPayload: { question, user_email, user_role, user_token? }"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst body = input.body ?? input;\n\nconst question  = (body.question || '').trim();\nlet userEmail = (body.user_email || '').trim().toLowerCase();\n\n// 🧪 TEST fallback\nif (!userEmail && body.user === 'test') {\n  userEmail = 'test@ceg.hu';\n}\nconst userRole  = (body.user_role || 'employee').trim().toLowerCase();\n\nconst allowedDomains = ['ceg.hu'];\nconst requireInternalEmail = true;\nconst maxQuestionLength = 500;\n\n// --- VALIDÁCIÓK ---\n\nif (!question) {\n  throw new Error('Hiányzó kérdés (question mező üres)');\n}\n\nif (question.length > maxQuestionLength) {\n  throw new Error(`A kérdés túl hosszú. Maximum ${maxQuestionLength} karakter engedélyezett.`);\n}\n\nif (!userEmail || !userEmail.includes('@')) {\n  throw new Error('Hiányzó vagy érvénytelen user_email');\n}\n\nconst emailDomain = userEmail.split('@')[1];\n\nif (requireInternalEmail && !allowedDomains.includes(emailDomain)) {\n  throw new Error('Unauthorized email domain');\n}\n\n// --- ROLE FILTER ---\n\nconst roleMap = {\n  admin:    ['hr', 'legal', 'ops', 'finance', 'general'],\n  manager:  ['hr', 'ops', 'finance', 'general'],\n  employee: ['hr', 'general'],\n  guest:    ['general'],\n};\n\nconst allowedTags = roleMap[userRole] || roleMap['guest'];\n\n// --- LANGUAGE DETECTION ---\n\nconst lang =\n  /[áéíóöőúüű]/i.test(question) ? 'hu'\n  : /\\b(urlaub|vertrag|richtlinie|prozess|abrechnung|personal|regelung)\\b/i.test(question) ? 'de'\n  : 'auto';\n\n// --- OUTPUT ---\n\nreturn [{\n  json: {\n    question,\n    userEmail,\n    userRole,\n    allowedTags,\n    requestId: `req_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,\n    timestamp: new Date().toISOString(),\n    language: lang,\n    startedAtMs: Date.now(),\n    maxQuestionLength\n  }\n}];"
+      },
+      "id": "06608006-b63e-45dc-9cce-ab744da492c7",
+      "name": "Validate + Auth + Role Filter",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -1744,
+        160
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5.4-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-5.4-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You optimize enterprise knowledge-base questions for retrieval. Rewrite the user's question into a concise, search-friendly query. Add synonyms and related terms only if they help retrieval. Keep the original language. Output ONLY the rewritten query.",
+              "role": "system"
+            },
+            {
+              "content": "Original question: {{$json.question}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6bbbe9e1-07d9-497d-9806-36f93034a3f9",
+      "name": "Query Enrichment",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [
+        -1504,
+        160
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "openAiApi": {
+          "id": "wxfbpht6aBWt1xrW",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Validate + Auth + Role Filter').first().json;\n\nreturn [{\n  json: {\n    question:         base.question,\n    userEmail:        base.userEmail,\n    userRole:         base.userRole,\n    allowedTags:      base.allowedTags,\n    requestId:        base.requestId,\n    timestamp:        base.timestamp,\n    language:         base.language,\n    startedAtMs:      base.startedAtMs,\n    maxQuestionLength: base.maxQuestionLength,\n    enrichedQuery:    base.question\n  }\n}];"
+      },
+      "id": "cdf6776b-4979-44b9-9d1a-d366919affe0",
+      "name": "Query Merge",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -1248,
+        160
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Query Merge').first().json;\nconst embedData = $input.first().json;\nconst embedding = embedData.data?.[0]?.embedding || [];\nif (!embedding.length) {\n  throw new Error('Nem sikerült embeddinget generálni.');\n}\n\nconst limit = 5;\n// const scoreThreshold = 0.75;\nconst scoreThreshold = 0;\n\nconst strictBody = {\n  vector: embedding,\n  limit,\n  score_threshold: scoreThreshold,\n  with_payload: true,\n  with_vectors: false,\n  filter: {\n    must: [{\n      key: 'tag',\n      match: { any: req.allowedTags || ['general'] }\n    }]\n  }\n};\n\nconst relaxedBody = {\n  vector: embedding,\n  limit,\n  score_threshold: Math.max(0.55, scoreThreshold - 0.15),\n  with_payload: true,\n  with_vectors: false\n};\n\nreturn [{\n  json: {\n    ...req,\n    embedding,\n    strictQdrantBody: JSON.stringify(strictBody),\n    relaxedQdrantBody: JSON.stringify(relaxedBody),\n    strictScoreThreshold: scoreThreshold,\n    relaxedScoreThreshold: Math.max(0.55, scoreThreshold - 0.15)\n  }\n}];"
+      },
+      "id": "e42c5459-07b3-4aca-86ae-411de6cf78e0",
+      "name": "Qdrant Query Builder",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -752,
+        160
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:6333/collections/documents/points/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.parse($json.strictQdrantBody) }}",
+        "options": {}
+      },
+      "id": "292e87d5-26cb-425a-8354-508bcd47abb3",
+      "name": "Qdrant Search Strict",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -496,
+        160
+      ],
+      "typeVersion": 4
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{($json.result || []).length}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "38aa2cd4-f75e-471e-a28e-249d9ce39c78",
+      "name": "Van Strict Találat?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        -256,
+        160
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.QDRANT_URL}}/collections/documents/points/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "={{$('build-qdrant-queries').item.json.relaxedQdrantBody}}",
+        "options": {}
+      },
+      "id": "48302829-38da-42c1-b611-f0326e228e5a",
+      "name": "Qdrant Search Relaxed Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        0,
+        320
+      ],
+      "typeVersion": 4
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('build-qdrant-queries').item.json;\nconst strictResp = $('qdrant-search-strict').item.json;\nconst relaxedResp = $input.item.json;\n\nconst strictResults = strictResp.result || [];\nconst relaxedResults = relaxedResp.result || [];\n\nconst usingFallback = strictResults.length === 0;\nconst results = usingFallback ? relaxedResults : strictResults;\n\nreturn [{\n  json: {\n    ...req,\n    qdrantResults: results,\n    usingFallback,\n    retrievalMode: usingFallback ? 'relaxed' : 'strict'\n  }\n}];"
+      },
+      "id": "443ea439-a1ea-4bf6-973e-bc23b35030cd",
+      "name": "Merge Relaxed Results",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        256,
+        320
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Qdrant Query Builder').first().json;\nconst strictResp = $input.first().json;\nconst strictResults = strictResp.result || [];\n\nreturn [{\n  json: {\n    ...req,\n    qdrantResults: strictResults,\n    usingFallback: false,\n    retrievalMode: 'strict'\n  }\n}];"
+      },
+      "id": "987fc6a7-daac-4e8b-b930-7f12b44b3a26",
+      "name": "Merge Strict Results",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst results = data.qdrantResults || [];\nconst chunkLimit = 800;\nconst totalContextLimit = 4000;\n\nif (results.length === 0) {\n  return [{\n    json: {\n      ...data,\n      context: 'Nem található releváns dokumentum.',\n      sources: [],\n      sourceCount: 0,\n      hasResults: false,\n      snippets: []\n    }\n  }];\n}\n\nlet totalChars = 0;\nconst contextParts = [];\nconst sources = [];\nconst snippets = [];\n\nfor (let i = 0; i < results.length; i++) {\n  const d = results[i];\n  const p = d.payload || {};\n  const text = (p.text || p.summary || '').substring(0, chunkLimit);\n\n  if (totalChars + text.length > totalContextLimit) break;\n\n  contextParts.push(`#${i+1} FORRÁS: ${p.filename || 'ismeretlen'} (tag: ${p.tag || '-'})\\n${text}\\n---`);\n  sources.push({\n    index: i + 1,\n    filename: p.filename || 'ismeretlen',\n    tag: p.tag || '-',\n    score: Math.round((d.score || 0) * 100) / 100,\n    department: p.department || '-'\n  });\n  snippets.push(text.substring(0, 200));\n  totalChars += text.length;\n}\n\nreturn [{\n  json: {\n    ...data,\n    context: contextParts.join('\\n\\n'),\n    sources,\n    sourceCount: sources.length,\n    hasResults: true,\n    snippets\n  }\n}];"
+      },
+      "id": "5f5c7a9e-5d68-435a-b184-0e74347ece17",
+      "name": "Context Builder",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        496,
+        160
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a professional internal company assistant.\n\nCRITICAL RULES:\n1. Answer ONLY based on the provided CONTEXT — never from your own knowledge.\n2. If relevant information exists in the context, use it even if partial.\n   Only say \"Nem található információ\" if the context contains ZERO relevant information.\n3. Always cite sources using [#1], [#2] etc. after each factual claim.\n4. Answer in the SAME LANGUAGE as the question.\n5. Be concise, professional, and structured.\n6. If multiple sources confirm the same fact, cite all of them.\n\nFORMAT:\n- Direct answer first\n- Then short bullet points only if useful\n- End with a short source summary\n\nIf the answer is uncertain, lower confidence implicitly by wording.\nDo not invent any information.",
+              "role": "system"
+            },
+            {
+              "content": "=CONTEXT:\n{{$json.context}}\n\nQUESTION: {{$json.question}}\n\nAnswer based strictly on the context above:"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 800,
+          "temperature": 0.2
+        }
+      },
+      "id": "9ed3038e-3d33-47b5-bc89-bd1f0f733e30",
+      "name": "LLM Answer",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [
+        752,
+        160
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "openAiApi": {
+          "id": "wxfbpht6aBWt1xrW",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// ctx = minden, amit eddig külön node-ból szedtél\nconst ctx = input;\nconst llmResp = input;\n\n// --- ANSWER ---\nconst answer = (llmResp.message?.content || 'Hiba történt a válasz generálása során.').trim();\n\n// --- RAG ADATOK ---\nconst sources = ctx.sources || [];\nconst snippets = ctx.snippets || [];\nconst count = ctx.sourceCount || sources.length || 0;\n\n// --- CONFIDENCE ---\nlet confidence = 0.0;\n\nif (!ctx.hasResults) confidence = 0.0;\nelse if (ctx.retrievalMode === 'strict' && count >= 4) confidence = 0.92;\nelse if (ctx.retrievalMode === 'strict' && count === 3) confidence = 0.84;\nelse if (ctx.retrievalMode === 'strict' && count === 2) confidence = 0.74;\nelse if (ctx.retrievalMode === 'strict' && count === 1) confidence = 0.60;\nelse if (ctx.retrievalMode === 'relaxed' && count >= 3) confidence = 0.72;\nelse if (ctx.retrievalMode === 'relaxed' && count === 2) confidence = 0.62;\nelse if (ctx.retrievalMode === 'relaxed' && count === 1) confidence = 0.50;\n\n// --- CITATION ---\nconst citationBlock = sources.length\n  ? sources.map(s => \n      `  [#${s.index ?? 1}] ${s.filename || 'unknown'} (${s.tag || '-'}, relevancia: ${Math.round((s.score || 0.8) * 100)}%)`\n    ).join('\\n')\n  : '  Nem található forrás.';\n\n// --- LATENCY ---\nconst durationMs = Date.now() - (ctx.startedAtMs || Date.now());\n\n// --- FORMATTED ---\nconst formattedAnswer = `${answer}\n\n📎 Felhasznált források:\n${citationBlock}\n\n🎯 Megbízhatóság: ${Math.round(confidence * 100)}%\n⏱ Feldolgozási idő: ${durationMs} ms`;\n\n// --- OUTPUT ---\nreturn [{\n  json: {\n    ...ctx,\n    answer,\n    formattedAnswer,\n    confidence,\n    confidencePct: Math.round(confidence * 100),\n    citationBlock,\n    sourceFilenames: sources.map(s => s.filename),\n    durationMs,\n    snippets\n  }\n}];"
+      },
+      "id": "5161152c-e7d5-493d-ba97-b3e6194c17a1",
+      "name": "Confidence + Citation + Latency",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        992,
+        160
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "=https://docs.google.com/spreadsheets/d/1HbiU4TlKAEWApmrlN41nYAsHdtfEZ9qowafoOWH0oxw/edit?gid=973763075#gid=973763075",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 973763075,
+          "mode": "list",
+          "cachedResultName": "test_excell",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1HbiU4TlKAEWApmrlN41nYAsHdtfEZ9qowafoOWH0oxw/edit#gid=973763075"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "File Name": "={{ $('Van Strict Találat?').item.json.result[0].payload.filename }}",
+            "Summary": "={{$json.summary}}",
+            "Key Points": "={{$json.keyPoints}}",
+            "Category": "={{$json.category}}",
+            "Date Processed": "={{$now}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "File Name",
+              "displayName": "File Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Source (email / upload / webhook)",
+              "displayName": "Source (email / upload / webhook)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Key Points",
+              "displayName": "Key Points",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Language",
+              "displayName": "Language",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date Processed",
+              "displayName": "Date Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Tags",
+              "displayName": "Tags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Confidence",
+              "displayName": "Confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Qdrant ID",
+              "displayName": "Qdrant ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Original Text (optional)",
+              "displayName": "Original Text (optional)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "2e99a457-bb9e-4813-b2d6-bd860cc0b387",
+      "name": "Audit Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        1248,
+        320
+      ],
+      "typeVersion": 4,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "cAOPh4Cw14zWIgrP",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{JSON.stringify({ answer: $json.formattedAnswer, raw_answer: $json.answer, confidence: $json.confidence, confidence_pct: $json.confidencePct, sources: $json.sources, snippets: $json.snippets, request_id: $json.requestId, user: $json.userEmail, role: $json.userRole, language: $json.language, retrieval_mode: $json.retrievalMode, used_fallback: $json.usingFallback, duration_ms: $json.durationMs })}}",
+        "options": {}
+      },
+      "id": "dc22ed70-714e-4e1a-8b52-fad7f821a1bd",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        1248,
+        64
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "INSERTAPIKEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": \"={{ $json.enrichedQuery }}\"\n}",
+        "options": {}
+      },
+      "id": "6eab9ed2-bacd-45ba-aff9-936388cb0771",
+      "name": "OpenAI Embedding (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -1088,
+        160
+      ],
+      "typeVersion": 4
+    },
+    {
+      "parameters": {
+        "jsCode": "const embedding = $json.data?.[0]?.embedding;\n\nif (!embedding) {\n  throw new Error(\"Embedding not found in OpenAI response\");\n}\n\nreturn [{\n  json: {\n    ...$json,\n    embedding\n  }\n}];"
+      },
+      "id": "27677c18-1222-4271-a19f-62eaff3ee2e0",
+      "name": "Extract Embedding",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -928,
+        160
+      ],
+      "typeVersion": 2
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate + Auth + Role Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Auth + Role Filter": {
+      "main": [
+        [
+          {
+            "node": "Query Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Query Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Merge": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Embedding (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Query Builder": {
+      "main": [
+        [
+          {
+            "node": "Qdrant Search Strict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Search Strict": {
+      "main": [
+        [
+          {
+            "node": "Van Strict Találat?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Van Strict Találat?": {
+      "main": [
+        [
+          {
+            "node": "Merge Strict Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Qdrant Search Relaxed Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Search Relaxed Fallback": {
+      "main": [
+        [
+          {
+            "node": "Merge Relaxed Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Strict Results": {
+      "main": [
+        [
+          {
+            "node": "Context Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Relaxed Results": {
+      "main": [
+        [
+          {
+            "node": "Context Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Builder": {
+      "main": [
+        [
+          {
+            "node": "LLM Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Answer": {
+      "main": [
+        [
+          {
+            "node": "Confidence + Citation + Latency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confidence + Citation + Latency": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embedding (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Extract Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Embedding": {
+      "main": [
+        [
+          {
+            "node": "Qdrant Query Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "be6e74b5-ad14-4efe-ab01-410f267cef1c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8bafa9bdd0abfa809193773a3bf7283447413792ada4f07d6ba290a2f0c94165"
+  },
+  "id": "3JAQ3CNconM6oOU7",
+  "tags": [
+    {
+      "updatedAt": "2026-03-24T20:04:15.850Z",
+      "createdAt": "2026-03-24T20:04:15.850Z",
+      "id": "0wqCIEdgTEtgDrnl",
+      "name": "Enterprise"
+    },
+    {
+      "updatedAt": "2026-03-24T20:04:15.780Z",
+      "createdAt": "2026-03-24T20:04:15.780Z",
+      "id": "6Wp7y3YwWhHtXw7G",
+      "name": "Production"
+    },
+    {
+      "updatedAt": "2026-03-24T20:04:15.760Z",
+      "createdAt": "2026-03-24T20:04:15.760Z",
+      "id": "DxF5UYKUGEzZKvCC",
+      "name": "Dokumentum"
+    },
+    {
+      "updatedAt": "2026-03-24T20:04:00.154Z",
+      "createdAt": "2026-03-24T20:04:00.154Z",
+      "id": "GCsLlHXOR23mrg53",
+      "name": "Demo"
+    },
+    {
+      "updatedAt": "2026-03-24T20:04:15.861Z",
+      "createdAt": "2026-03-24T20:04:15.861Z",
+      "id": "Lgae2BPN1S3PB2tX",
+      "name": "RAG"
+    },
+    {
+      "updatedAt": "2026-03-24T20:04:15.822Z",
+      "createdAt": "2026-03-24T20:04:15.822Z",
+      "id": "Pf3vpaftQJtYgP9B",
+      "name": "WF2"
+    },
+    {
+      "updatedAt": "2026-03-24T20:04:00.171Z",
+      "createdAt": "2026-03-24T20:04:00.171Z",
+      "id": "pnjxmyXyOz3KSFbA",
+      "name": "DocuAgent"
+    }
+  ]
+}

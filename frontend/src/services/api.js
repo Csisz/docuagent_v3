@@ -46,6 +46,11 @@ export const api = {
   getSlaSummary: () => req('/api/sla/summary'),
   getSlaStatus:  () => req('/api/sla/status'),
 
+  slaConfig:    () => req('/api/sla/config'),
+  slaSetConfig: (w, b) => req('/api/sla/config', { method: 'POST', body: JSON.stringify({ warning_hours: w, breach_hours: b }) }),
+  slaSummary:   () => req('/api/sla/summary'),
+  slaStatus:    () => req('/api/sla/status'),
+
   upload: (formData) =>
     fetch(`${BASE}/api/upload`, { method: 'POST', body: formData, signal: AbortSignal.timeout(60000) })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),

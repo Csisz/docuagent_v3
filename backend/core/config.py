@@ -2,7 +2,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+_root_env = Path(__file__).parent.parent.parent / ".env"
+_backend_env = Path(__file__).parent.parent / ".env"
+load_dotenv(_root_env if _root_env.exists() else _backend_env)
 
 # ── Adatbázis ─────────────────────────────────────────────────
 DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/docuagent")

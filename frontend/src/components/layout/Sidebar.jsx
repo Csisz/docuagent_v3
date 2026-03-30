@@ -69,7 +69,7 @@ export default function Sidebar() {
         'fixed inset-y-0 left-0 z-30 w-[236px] flex flex-col',
         theme === 'light'
           ? 'bg-slate-800 border-r border-slate-700'
-          : 'bg-[#050d18] border-r border-white/7',
+          : 'bg-[#050d18]',
         'transition-transform duration-300 ease-in-out',
         // Mobile: slide in/out
         mobileNavOpen ? 'translate-x-0' : '-translate-x-full',

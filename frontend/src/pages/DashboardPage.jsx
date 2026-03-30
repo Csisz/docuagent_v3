@@ -10,6 +10,15 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../services/api'
 import { STATUS_LABELS, CATEGORY_LABELS } from '../constants/labels'
 
+function sanitizeAlert(msg) {
+  if (!msg) return ''
+  let text = msg.replace(/<[^>]*>/g, '')
+  Object.entries(STATUS_LABELS).forEach(([key, val]) => {
+    text = text.replace(new RegExp(key, 'g'), val)
+  })
+  return text
+}
+
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
   useSensor, useSensors, DragOverlay,
@@ -152,7 +161,7 @@ export default function DashboardPage() {
             <path d="M8 2L14.5 13H1.5L8 2z" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M8 6v4M8 11.5v.5" strokeLinecap="round"/>
           </svg>
-          <span className="text-zinc-300">{a.message}</span>
+          <span className="text-zinc-300">{sanitizeAlert(a.message)}</span>
         </div>
       ))}
 

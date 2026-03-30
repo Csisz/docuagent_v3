@@ -28,7 +28,7 @@ export default function Topbar({ onUpload }) {
       'flex items-center justify-between',
       theme === 'light'
         ? 'bg-white/90 border-b border-slate-200'
-        : 'bg-[rgba(7,7,26,0.75)] border-b border-white/7',
+        : 'bg-[rgba(7,7,26,0.75)]',
       'backdrop-blur-xl px-4 md:px-6 h-14 flex-shrink-0',
       'relative'
     )}>

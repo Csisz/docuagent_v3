@@ -38,7 +38,10 @@ export default function Topbar({ onUpload }) {
       <div className="flex items-center gap-3">
         {/* Mobile hamburger */}
         <button
-          className="lg:hidden text-white/50 hover:text-white mr-1 p-1"
+          className={clsx(
+            'lg:hidden mr-1 p-1',
+            theme === 'light' ? 'text-slate-500 hover:text-slate-800' : 'text-white/50 hover:text-white'
+          )}
           onClick={toggleMobileNav}
         >
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">

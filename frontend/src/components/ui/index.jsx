@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { STATUS_LABELS } from '../../constants/labels'
 
 export function Badge({ variant = 'default', children, className }) {
   const variants = {
@@ -18,10 +19,10 @@ export function Badge({ variant = 'default', children, className }) {
 
 export function StatusBadge({ status }) {
   const map = {
-    NEW:              { variant: 'new',       label: 'NEW' },
-    AI_ANSWERED:      { variant: 'ai',        label: '✓ AI' },
-    NEEDS_ATTENTION:  { variant: 'attention', label: '⚠ NEEDS' },
-    CLOSED:           { variant: 'closed',    label: 'CLOSED' },
+    NEW:              { variant: 'new',       label: STATUS_LABELS.NEW },
+    AI_ANSWERED:      { variant: 'ai',        label: `✓ ${STATUS_LABELS.AI_ANSWERED}` },
+    NEEDS_ATTENTION:  { variant: 'attention', label: `⚠ ${STATUS_LABELS.NEEDS_ATTENTION}` },
+    CLOSED:           { variant: 'closed',    label: STATUS_LABELS.CLOSED },
   }
   const cfg = map[status] || { variant: 'default', label: status }
   return <Badge variant={cfg.variant}>{cfg.label}</Badge>

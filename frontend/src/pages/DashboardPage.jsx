@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../services/api'
-import { STATUS_LABELS } from '../constants/labels'
+import { STATUS_LABELS, CATEGORY_LABELS } from '../constants/labels'
 
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -199,6 +199,9 @@ export default function DashboardPage() {
 }
 
 function SLACard() {
+  const { theme } = useStore()
+  const isLight = theme === 'light'
+  const sliderBg = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.1)'
   const [summary,    setSummary]    = useState(null)
   const [config,     setConfig]     = useState({ warning_hours: 4, breach_hours: 24 })
   const [saved,      setSaved]      = useState(false)
@@ -316,7 +319,7 @@ function SLACard() {
                   const v = +e.target.value
                   if (v < config.breach_hours) updateConfig({ warning_hours: v })
                 }}
-                className={sl} style={{background:'#e2e8f0'}} />
+                className={sl} style={{background: sliderBg}} />
               <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>1h</span><span>23h</span></div>
             </div>
             <div>
@@ -329,7 +332,7 @@ function SLACard() {
                   const v = +e.target.value
                   if (v > config.warning_hours) updateConfig({ breach_hours: v })
                 }}
-                className={sl} style={{background:'#e2e8f0'}} />
+                className={sl} style={{background: sliderBg}} />
               <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>2h</span><span>72h</span></div>
             </div>
           </div>
@@ -341,6 +344,9 @@ function SLACard() {
 
 
 function ROICard({ aiAnswered }) {
+  const { theme } = useStore()
+  const isLight = theme === 'light'
+  const sliderBg = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.1)'
   const [hourlyRate,      setHourlyRate]      = useState(() => {
     try { return Number(localStorage.getItem('roi_hourly_rate'))      || 5000 } catch { return 5000 }
   })
@@ -436,7 +442,7 @@ function ROICard({ aiAnswered }) {
                 <span className="text-[11px] font-mono font-bold text-[#e06010] dark:text-[#ff7820]">{minutesPerEmail} perc</span>
               </div>
               <input type="range" min={3} max={60} step={1} value={minutesPerEmail}
-                onChange={e => updateMinutes(+e.target.value)} className={sl} style={{background:'#e2e8f0'}} />
+                onChange={e => updateMinutes(+e.target.value)} className={sl} style={{background: sliderBg}} />
               <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>3 perc</span><span>60 perc</span></div>
             </div>
             <div>
@@ -445,7 +451,7 @@ function ROICard({ aiAnswered }) {
                 <span className="text-[11px] font-mono font-bold text-[#e06010] dark:text-[#ff7820]">{hourlyRate.toLocaleString('hu-HU')} Ft/h</span>
               </div>
               <input type="range" min={2000} max={15000} step={500} value={hourlyRate}
-                onChange={e => updateHourlyRate(+e.target.value)} className={sl} style={{background:'#e2e8f0'}} />
+                onChange={e => updateHourlyRate(+e.target.value)} className={sl} style={{background: sliderBg}} />
               <div className="flex justify-between text-[9px] text-slate-400 dark:text-zinc-600 font-mono mt-1.5"><span>2 000 Ft</span><span>15 000 Ft</span></div>
             </div>
           </div>
@@ -497,8 +503,52 @@ function TimelineChart({ data }) {
 }
 
 function CategoryChart({ data }) {
-  if (!data) return <div className="h-full flex items-center justify-center text-zinc-600 text-sm">Nincs adat</div>
-  return <Doughnut data={{labels:['Panasz','Érdeklődés','Egyéb'],datasets:[{data:[data.complaint||0,data.inquiry||0,data.other||0],backgroundColor:['rgba(248,113,113,.7)','rgba(255,120,32,.7)','rgba(113,113,122,.5)'],borderColor:['#f87171','#ff7820','#71717a'],borderWidth:1.5,hoverOffset:5}]}} options={{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'bottom',labels:{boxWidth:8,padding:10,color:'#9ca3af',font:{family:'JetBrains Mono',size:10}}}}}} />
+  if (!data) return (
+    <div className="h-full flex items-center justify-center text-zinc-600 text-sm">Nincs adat</div>
+  )
+  return <Doughnut
+    data={{
+      labels: [
+        CATEGORY_LABELS.complaint,
+        CATEGORY_LABELS.inquiry,
+        CATEGORY_LABELS.invoice,
+        CATEGORY_LABELS.other,
+      ],
+      datasets: [{
+        data: [
+          data.complaint || 0,
+          data.inquiry   || 0,
+          data.invoice   || 0,
+          data.other     || 0,
+        ],
+        backgroundColor: [
+          'rgba(248,113,113,.7)',
+          'rgba(255,120,32,.7)',
+          'rgba(59,130,246,.7)',
+          'rgba(113,113,122,.5)',
+        ],
+        borderColor: ['#f87171','#ff7820','#3b82f6','#71717a'],
+        borderWidth: 1.5,
+        hoverOffset: 5,
+      }]
+    }}
+    options={{
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            boxWidth: 8,
+            padding: 10,
+            color: '#9ca3af',
+            font: { family: 'JetBrains Mono', size: 10 }
+          }
+        }
+      }
+    }}
+  />
 }
 
 function AIPanel({ emailCount }) {

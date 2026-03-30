@@ -78,7 +78,7 @@ export default function Sidebar() {
       )}>
 
         {/* Logo / Brand */}
-        <div className="flex items-center gap-3 px-[18px] py-5 border-b border-white/7">
+        <div className="flex items-center gap-3 px-[18px] h-14 flex-shrink-0 border-b border-white/7">
           <div className="w-8 h-8 rounded-lg bg-[#1a56db] flex items-center justify-center flex-shrink-0 shadow-glow">
             <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4">
               <path d="M3 8h5M9 4l4 4-4 4" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>

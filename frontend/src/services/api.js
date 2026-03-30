@@ -23,6 +23,9 @@ export const api = {
   deleteEmail: (id) =>
     req(`/api/emails/${id}`, { method: 'DELETE' }),
 
+  deleteDocument: (id) =>
+    req(`/api/documents/${id}`, { method: 'DELETE' }),
+
   updateStatus: (id, status, note = '') =>
     req(`/api/emails/${id}/status`, {
       method: 'PATCH',

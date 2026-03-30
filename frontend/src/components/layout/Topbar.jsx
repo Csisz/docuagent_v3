@@ -13,7 +13,7 @@ const TITLES = {
 
 export default function Topbar({ onUpload }) {
   const { pathname } = useLocation()
-  const { liveStatus, liveTime, toggleMobileNav } = useStore()
+  const { liveStatus, liveTime, toggleMobileNav, theme } = useStore()
   const { cat, title } = TITLES[pathname] || { cat: 'DocuAgent', title: pathname }
   const { dotClass, chipClass } = LiveDot({ status: liveStatus })
 
@@ -26,7 +26,9 @@ export default function Topbar({ onUpload }) {
   return (
     <header className={clsx(
       'flex items-center justify-between',
-      'bg-[rgba(7,7,26,0.75)] border-b border-white/7',
+      theme === 'light'
+        ? 'bg-white/90 border-b border-slate-200'
+        : 'bg-[rgba(7,7,26,0.75)] border-b border-white/7',
       'backdrop-blur-xl px-4 md:px-6 h-14 flex-shrink-0',
       'relative'
     )}>
@@ -45,8 +47,8 @@ export default function Topbar({ onUpload }) {
         </button>
 
         <div>
-          <div className="text-[9.5px] text-white/35 uppercase tracking-[.16em] font-mono hidden sm:block">{cat}</div>
-          <div className="text-[17px] font-bold text-white leading-tight tracking-[-0.4px]">{title}</div>
+          <div className={clsx('text-[9.5px] uppercase tracking-[.16em] font-mono hidden sm:block', theme === 'light' ? 'text-slate-400' : 'text-white/35')}>{cat}</div>
+          <div className={clsx('text-[17px] font-bold leading-tight tracking-[-0.4px]', theme === 'light' ? 'text-slate-800' : 'text-white')}>{title}</div>
         </div>
       </div>
 

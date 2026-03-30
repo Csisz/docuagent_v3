@@ -67,7 +67,9 @@ export default function Sidebar() {
       {/* Sidebar */}
       <aside className={clsx(
         'fixed inset-y-0 left-0 z-30 w-[236px] flex flex-col',
-        theme === 'light' ? 'bg-[#1e293b] border-r border-slate-700' : 'bg-[#050d18] border-r border-white/7',
+        theme === 'light'
+          ? 'bg-slate-800 border-r border-slate-700'
+          : 'bg-[#050d18] border-r border-white/7',
         'transition-transform duration-300 ease-in-out',
         // Mobile: slide in/out
         mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
@@ -98,7 +100,7 @@ export default function Sidebar() {
         <nav className="flex-1 overflow-y-auto px-2 py-2">
           {NAV.map(({ section, items }) => (
             <div key={section}>
-              <div className="text-[8.5px] text-white/50 uppercase tracking-[.18em] font-mono px-3 py-3 pb-1">
+              <div className="text-[8.5px] text-white/50 uppercase tracking-[.18em] px-3 py-3 pb-1">
                 {section}
               </div>
               {items.map(({ to, label, icon: Icon, badge }) => (
@@ -135,7 +137,7 @@ export default function Sidebar() {
           >
             <span className="text-[13px] w-4 text-center leading-none">🔑</span>
             <span className="text-[12px] font-mono flex-1 text-left transition-colors" style={{color: apiKeySet ? '#4ade80' : 'rgba(255,255,255,0.35)'}}>
-              {apiKeySet ? 'Kulcs beállítva ✓' : 'API kulcs (nincs)'}
+              {apiKeySet ? 'Kapcsolat aktív ✓' : 'Hozzáférési kód beállítása'}
             </span>
           </button>
         </div>
@@ -194,9 +196,9 @@ export default function Sidebar() {
             onClick={e => e.stopPropagation()}
           >
             <div className="text-[15px] font-semibold text-white mb-1">API kulcs beállítása</div>
-            <div className="text-[12px] text-white/40 mb-4 font-mono">
-              Ha a backend DASHBOARD_API_KEY-vel fut, add meg itt.<br/>
-              Üresen hagyva az auth ki van kapcsolva.
+            <div className="text-[12px] text-white/50 mb-4 leading-relaxed">
+              Add meg a rendszergazdától kapott hozzáférési kódot.<br/>
+              Ha nincs hozzáférési kód, hagyd üresen.
             </div>
             <input
               type="password"

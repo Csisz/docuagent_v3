@@ -25,6 +25,16 @@ export default function DocsPage() {
     document.getElementById('fileIn')?.click()
   }
 
+  async function handleDelete(docId, filename) {
+    if (!confirm(`Biztosan törlöd a következő dokumentumot?\n\n"${filename}"\n\nEz a művelet nem vonható vissza.`)) return
+    try {
+      await api.deleteDocument(docId)
+      loadDocs()
+    } catch (e) {
+      alert(`Törlési hiba: ${e.message}`)
+    }
+  }
+
   function onDrop(e) {
     e.preventDefault()
     setDragging(false)
@@ -92,16 +102,36 @@ export default function DocsPage() {
         </div>
       ) : docs.length === 0 ? (
         <div className="glass-card text-center py-12">
-          <div className="text-3xl mb-3">📄</div>
-          <div className="text-zinc-500 text-sm">Még nincs feltöltött dokumentum</div>
-          <div className="text-zinc-600 text-xs mt-1">Húzz ide fájlokat vagy kattints a területre fent</div>
+          <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-400/20 flex items-center justify-center mx-auto mb-4">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" className="w-6 h-6 text-blue-400">
+              <path d="M4 4h8l4 4v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" strokeLinejoin="round"/>
+              <path d="M12 4v4h4M8 11v4M6 13h4" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div className="text-[15px] font-medium mb-2">Még nincs feltöltött dokumentum</div>
+          <div className="text-zinc-500 text-[13px] mb-4">Töltsd fel a belső szabályzatokat, ÁSZF-et vagy egyéb dokumentumokat, amiket az AI felhasználhat a válaszadáshoz.</div>
+          <button
+            onClick={triggerUpload}
+            className="btn-neon text-[13px] px-4 py-2"
+          >
+            + Első dokumentum feltöltése
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {docs.map(d => {
             const c = extColors[d.ext] || { bg: 'bg-white/5', text: 'text-zinc-500' }
             return (
-              <div key={d.id} className="glass-card hover:border-white/13 cursor-pointer group transition-all">
+              <div key={d.id} className="glass-card hover:border-white/13 transition-all relative group">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(d.id, d.filename) }}
+                  className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border border-white/10 text-zinc-500 hover:text-red-400 hover:border-red-400/40 hover:bg-red-500/10"
+                  title="Dokumentum törlése"
+                >
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" className="w-3 h-3">
+                    <path d="M2 3h8M4.5 3V2h3v1M4.5 5v4M7.5 5v4M2.5 3l.5 7h6l.5-7" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </button>
                 <span className={clsx('text-[9px] font-bold font-mono px-2 py-0.5 rounded inline-block mb-2', c.bg, c.text)}>
                   {(d.ext || '?').toUpperCase()}
                 </span>

@@ -6,9 +6,9 @@ import { api } from '../services/api'
 import { useStore } from '../store'
 import { StatusBadge, ConfBar, Skeleton } from '../components/ui'
 import { useToast } from '../hooks'
+import { STATUS_LABELS, FILTER_LABELS, CATEGORY_LABELS, SENTIMENT_LABELS } from '../constants/labels'
 
 const FILTERS = [null, 'NEW', 'AI_ANSWERED', 'NEEDS_ATTENTION', 'CLOSED']
-const FILTER_LABELS = { null: 'Összes', NEW: 'NEW', AI_ANSWERED: 'AI_ANSWERED', NEEDS_ATTENTION: 'NEEDS_ATTENTION', CLOSED: 'CLOSED' }
 const STATUSES = ['NEW', 'AI_ANSWERED', 'NEEDS_ATTENTION', 'CLOSED']
 
 export default function EmailsPage({ defaultFilter }) {
@@ -76,7 +76,7 @@ export default function EmailsPage({ defaultFilter }) {
     for (const id of selected) {
       try { await api.updateStatus(id, bulkStatus); updateEmailStatus(id, bulkStatus); ok++ } catch {}
     }
-    toast(`✓ ${ok} email → ${bulkStatus}`, 'ok')
+    toast(`✓ ${ok} email → ${STATUS_LABELS[bulkStatus] || bulkStatus}`, 'ok')
     setSelected(new Set())
     setBulkStatus('')
   }
@@ -114,13 +114,16 @@ export default function EmailsPage({ defaultFilter }) {
 
   async function handleStatusChange(email, newStatus, sel) {
     if (email.status === newStatus) return
+    const previousStatus = email.status
+    updateEmailStatus(email.id, newStatus)
     try {
       const res = await api.updateStatus(email.id, newStatus)
-      updateEmailStatus(email.id, newStatus)
-      toast(`✓ ${email.status} → ${newStatus}${res.learning_stored ? ' · 🧠 tanulás' : ''}`, 'ok')
+      const learningNote = res.learning_stored ? ' · AI tanult a visszajelzésből 🧠' : ''
+      toast(`✓ Státusz módosítva${learningNote}`, 'ok')
     } catch (e) {
-      toast(`Hiba: ${e.message}`, 'err')
-      sel.value = email.status
+      updateEmailStatus(email.id, previousStatus)
+      toast(`Hiba a mentésnél: ${e.message}`, 'err')
+      if (sel) sel.value = previousStatus
     }
   }
 
@@ -130,9 +133,14 @@ export default function EmailsPage({ defaultFilter }) {
 
   return (
     <div className="animate-fade-up">
-      <p className="text-[11.5px] text-zinc-500 font-mono mb-3">
-        Státusz szerkesztés · Human-in-the-loop tanulás ·{' '}
-        <span className="text-orange-400">🧠 LEARNED = AI tanult</span>
+      <p className="text-[11.5px] text-zinc-500 mb-3">
+        Ha az AI tévesen osztályozta az e-mailt, a státusz módosítása automatikusan tanítja a rendszert.{' '}
+        <span
+          className="text-orange-400 cursor-help border-b border-dashed border-orange-400/40"
+          title="A 🧠 ikon azt jelzi, hogy az AI döntését egy korábbi visszajelzés alapján módosítottuk."
+        >
+          🧠 mit jelent?
+        </span>
       </p>
 
       {/* Filters */}
@@ -177,7 +185,7 @@ export default function EmailsPage({ defaultFilter }) {
               )}
             >
               <option value="">Státusz módosítás…</option>
-              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s] || s}</option>)}
             </select>
             <button
               onClick={handleBulkStatus}
@@ -218,7 +226,7 @@ export default function EmailsPage({ defaultFilter }) {
                   />
                 </th>
                 <th className={clsx('px-2 py-2.5 w-9', isLight ? 'bg-slate-50' : 'bg-white/[.02]')} />
-                {['Tárgy', 'Feladó', 'Kategória', 'Státusz', 'Hangulat', 'Konf.', 'Dátum', 'Módosítás'].map(h => (
+                {['Tárgy', 'Feladó', 'Státusz', 'Dátum', 'Módosítás'].map(h => (
                   <th key={h} className={clsx('text-left px-3 py-2.5 text-[9.5px] font-bold uppercase tracking-[.08em] font-mono whitespace-nowrap', isLight ? 'bg-slate-50 text-slate-400' : 'bg-white/[.02] text-zinc-500')} style={h==='Státusz'?{minWidth:'160px'}:{}}>
                     {h}
                   </th>
@@ -229,13 +237,13 @@ export default function EmailsPage({ defaultFilter }) {
               {loading
                 ? Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className={clsx('border-b', isLight ? 'border-slate-100' : 'border-white/5')}>
-                    {Array.from({ length: 10 }).map((_, j) => (
+                    {Array.from({ length: 7 }).map((_, j) => (
                       <td key={j} className="px-3 py-2.5"><Skeleton className="h-3" /></td>
                     ))}
                   </tr>
                 ))
                 : emails.length === 0
-                ? <tr><td colSpan={10} className="text-center py-12 text-zinc-600">Nincs email</td></tr>
+                ? <tr><td colSpan={7} className="text-center py-12 text-zinc-600">Nincs email</td></tr>
                 : emails.map(e => (
                   <EmailRow
                     key={e.id}
@@ -277,10 +285,10 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
 
   // ── Sentiment pill badge (A verzió — szöveges, emoji nélkül) ─
   const sentimentData = {
-    positive: { label: 'positive', bg: isLight ? 'bg-green-50  border-green-300  text-green-700'  : 'bg-green-500/10  border-green-400/30  text-green-400',  title: 'Pozitív hangulat' },
-    neutral:  { label: 'neutral',  bg: isLight ? 'bg-slate-100 border-slate-300  text-slate-500'  : 'bg-white/5       border-white/15       text-zinc-500',   title: 'Semleges hangulat' },
-    negative: { label: 'negative', bg: isLight ? 'bg-amber-50  border-amber-300  text-amber-700'  : 'bg-amber-500/10  border-amber-400/30  text-amber-400',  title: 'Negatív hangulat' },
-    angry:    { label: 'angry',    bg: isLight ? 'bg-red-50    border-red-300    text-red-700'    : 'bg-red-500/10    border-red-400/30    text-red-400',    title: 'Dühös / fenyegető' },
+    positive: { label: SENTIMENT_LABELS.positive, bg: isLight ? 'bg-green-50  border-green-300  text-green-700'  : 'bg-green-500/10  border-green-400/30  text-green-400',  title: 'Pozitív hangulat' },
+    neutral:  { label: SENTIMENT_LABELS.neutral,  bg: isLight ? 'bg-slate-100 border-slate-300  text-slate-500'  : 'bg-white/5       border-white/15       text-zinc-500',   title: 'Semleges hangulat' },
+    negative: { label: SENTIMENT_LABELS.negative, bg: isLight ? 'bg-amber-50  border-amber-300  text-amber-700'  : 'bg-amber-500/10  border-amber-400/30  text-amber-400',  title: 'Negatív hangulat' },
+    angry:    { label: SENTIMENT_LABELS.angry,    bg: isLight ? 'bg-red-50    border-red-300    text-red-700'    : 'bg-red-500/10    border-red-400/30    text-red-400',    title: 'Dühös / fenyegető' },
   }
   const sentiment = e.sentiment || aiD.sentiment || 'neutral'
   const sentInfo = sentimentData[sentiment] || sentimentData.neutral
@@ -294,10 +302,10 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
                                      : 'text-zinc-500 bg-white/5 border-white/10'
 
   const statusBadge = {
-    NEW:             <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-400/20 whitespace-nowrap">NEW</span>,
-    AI_ANSWERED:     <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-400/20 whitespace-nowrap">✓ AI_ANSWERED</span>,
-    NEEDS_ATTENTION: <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-400/20 whitespace-nowrap">⚠ NEEDS_ATTENTION</span>,
-    CLOSED:          <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-zinc-500/15 text-zinc-400 border border-zinc-400/20 whitespace-nowrap">CLOSED</span>,
+    NEW:             <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-400/20 whitespace-nowrap">Várakozó</span>,
+    AI_ANSWERED:     <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-400/20 whitespace-nowrap">✓ AI kezelte</span>,
+    NEEDS_ATTENTION: <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-400/20 whitespace-nowrap">⚠ Figyelmet igényel</span>,
+    CLOSED:          <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-zinc-500/15 text-zinc-400 border border-zinc-400/20 whitespace-nowrap">Lezárva</span>,
   }[e.status] || <span className="text-zinc-500 font-mono text-[10px] whitespace-nowrap">{e.status}</span>
 
   return (
@@ -353,32 +361,7 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
         <td className="px-3 py-2.5 max-w-[150px]">
           <span className={clsx('text-[11px] font-mono truncate block', isLight ? 'text-slate-500' : 'text-zinc-500')}>{e.sender || '—'}</span>
         </td>
-        <td className="px-3 py-2.5">
-          <span className={clsx('text-[11px] font-mono', catColor)}>{e.category || '—'}</span>
-        </td>
         <td className="px-3 py-2.5" style={{minWidth:'160px'}}>{statusBadge}</td>
-
-        {/* Sentiment pill + Urgency score oszlop */}
-        <td className="px-3 py-2.5">
-          <div className="flex items-center gap-1.5">
-            <span
-              title={sentInfo.title}
-              className={clsx('text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border whitespace-nowrap', sentInfo.bg)}
-            >
-              {sentInfo.label}
-            </span>
-            {urgency > 0 && (
-              <span
-                title={`Sürgősség: ${urgency}/100`}
-                className={clsx('text-[10px] font-bold font-mono px-1.5 py-0.5 rounded border whitespace-nowrap', urgencyColor)}
-              >
-                {urgency}
-              </span>
-            )}
-          </div>
-        </td>
-
-        <td className="px-3 py-2.5"><ConfBar value={e.confidence} /></td>
         <td className="px-3 py-2.5">
           <span className={clsx('text-[11px] font-mono whitespace-nowrap', isLight ? 'text-slate-500' : 'text-zinc-500')}>{dt}</span>
         </td>
@@ -394,8 +377,8 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
                 isLight ? 'bg-white border-slate-300 text-slate-700' : 'bg-white/5 border-white/13 text-zinc-300'
               )}
             >
-              {['NEW','AI_ANSWERED','NEEDS_ATTENTION','CLOSED'].map(s => (
-                <option key={s} value={s} className={isLight ? 'bg-white text-slate-800' : 'bg-[#0d0d24]'}>{s}</option>
+              {STATUSES.map(s => (
+                <option key={s} value={s} className={isLight ? 'bg-white text-slate-800' : 'bg-[#0d0d24]'}>{STATUS_LABELS[s] || s}</option>
               ))}
             </select>
 
@@ -423,27 +406,30 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
 
       {expanded && (
         <tr className={clsx('border-b', isLight ? 'border-slate-100' : 'border-white/5')}>
-          <td colSpan={10} className={clsx('px-4 py-3 border-t', isLight ? 'bg-orange-50 border-orange-200' : 'bg-orange-500/[.04] border-orange-400/15')}>
+          <td colSpan={7} className={clsx('px-4 py-3 border-t', isLight ? 'bg-orange-50 border-orange-200' : 'bg-orange-500/[.04] border-orange-400/15')}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <div className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em] mb-1', isLight ? 'text-slate-400' : 'text-zinc-500')}>Feladó</div>
                 <div className={clsx('text-[13px]', isLight ? 'text-slate-700' : 'text-zinc-300')}>{e.sender || '—'}</div>
 
-                {/* Sentiment + Urgency summary */}
-                <div className="flex items-center gap-2 mt-3 mb-1">
-                  <span className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em]', isLight ? 'text-slate-400' : 'text-zinc-500')}>AI elemzés</span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span title={sentInfo.title} className={clsx('inline-flex items-center text-[11px] font-mono font-medium px-2 py-0.5 rounded border', sentInfo.bg)}>
+                {/* Kategória + Hangulat + Urgency + Konfidencia összefoglaló */}
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <span className={clsx('text-[10px] font-mono px-2 py-0.5 rounded border', catColor === 'text-red-400' ? 'bg-red-500/10 border-red-400/20 text-red-400' : catColor === 'text-blue-400' ? 'bg-blue-500/10 border-blue-400/20 text-blue-400' : 'bg-zinc-500/10 border-zinc-400/20 text-zinc-500')}>
+                    {CATEGORY_LABELS[e.category] || e.category || 'Egyéb'}
+                  </span>
+                  <span title={sentInfo.title} className={clsx('text-[10px] font-mono font-medium px-2 py-0.5 rounded border', sentInfo.bg)}>
                     {sentInfo.label}
                   </span>
-                  <span title={`Sürgősség: ${urgency}/100`} className={clsx('inline-flex items-center text-[11px] font-bold font-mono px-2 py-0.5 rounded border', urgencyColor)}>
-                    urgency {urgency}/100
-                  </span>
+                  {urgency > 0 && (
+                    <span title={`Sürgősség: ${urgency}/100`} className={clsx('text-[10px] font-bold font-mono px-2 py-0.5 rounded border', urgencyColor)}>
+                      Sürgősség: {urgency}/100
+                    </span>
+                  )}
+                  <ConfBar value={e.confidence} />
                 </div>
 
                 <div className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em] mt-3 mb-1', isLight ? 'text-slate-400' : 'text-zinc-500')}>AI döntés</div>
-                <pre className={clsx('text-[11px] font-mono rounded p-2 overflow-auto max-h-24', isLight ? 'bg-slate-100 text-slate-600 border border-slate-200' : 'bg-white/3 text-zinc-400')}>{JSON.stringify(aiD, null, 2)}</pre>
+                <AiDecisionCard aiD={aiD} email={e} isLight={isLight} />
               </div>
               <div>
                 <div className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em] mb-1', isLight ? 'text-slate-400' : 'text-zinc-500')}>Email törzse</div>
@@ -472,6 +458,51 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
         </tr>
       )}
     </>
+  )
+}
+
+function AiDecisionCard({ aiD, email, isLight }) {
+  const pct = Math.round((email.confidence ?? aiD.confidence ?? 0) * 100)
+  const confidenceLabel = pct >= 80 ? 'Megbízható' : pct >= 60 ? 'Elfogadható' : 'Alacsony megbízhatóság'
+  const confidenceColor = pct >= 80 ? (isLight ? 'text-green-700' : 'text-green-400')
+                        : pct >= 60 ? (isLight ? 'text-amber-700' : 'text-amber-400')
+                        : (isLight ? 'text-red-700' : 'text-red-400')
+
+  const rows = [
+    aiD.learned_override && {
+      icon: '🧠',
+      text: 'Korábbi visszajelzés alapján módosított döntés',
+      color: isLight ? 'text-orange-700 bg-orange-50 border-orange-200' : 'text-orange-400 bg-orange-500/10 border-orange-400/20',
+    },
+    pct > 0 && {
+      icon: null,
+      text: `Az AI ${pct}% biztossággal osztályozta ezt az emailt — ${confidenceLabel.toLowerCase()}`,
+      color: isLight ? `${confidenceColor} bg-slate-50 border-slate-200` : `${confidenceColor} bg-white/3 border-white/10`,
+    },
+    aiD.reasoning && {
+      icon: null,
+      text: aiD.reasoning,
+      color: isLight ? 'text-slate-600 bg-slate-50 border-slate-200' : 'text-zinc-400 bg-white/3 border-white/10',
+    },
+  ].filter(Boolean)
+
+  if (rows.length === 0) {
+    return (
+      <span className={isLight ? 'text-slate-400 text-[12px]' : 'text-zinc-600 text-[12px]'}>
+        Nincs részletes AI információ
+      </span>
+    )
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {rows.map((row, i) => (
+        <div key={i} className={`text-[12px] rounded-lg px-3 py-2 border leading-relaxed ${row.color}`}>
+          {row.icon && <span className="mr-1.5">{row.icon}</span>}
+          {row.text}
+        </div>
+      ))}
+    </div>
   )
 }
 

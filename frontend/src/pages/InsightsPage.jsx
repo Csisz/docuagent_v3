@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { Skeleton } from '../components/ui'
+import { useStore } from '../store'
 import clsx from 'clsx'
 
 export default function InsightsPage() {
+  const { theme } = useStore()
+  const isLight = theme === 'light'
   const [kpis, setKpis]       = useState(null)
   const [ai, setAi]           = useState(null)
   const [loading, setLoading] = useState(false)
@@ -27,7 +30,10 @@ export default function InsightsPage() {
 
   return (
     <div className="animate-fade-up space-y-4">
-      <p className="text-[11.5px] text-zinc-500 font-mono -mb-1">Mesterséges intelligencia elemzés · utolsó 7 nap</p>
+      <p className="text-[13px] text-zinc-400 -mb-1">
+        Részletes AI elemzés az utolsó 7 napra — azonosított problémák, trendek és javasolt teendők.
+        <span className="text-zinc-600 text-[11px] ml-2">Ez az oldal mélyebb betekintést nyújt a Dashboard összefoglalójánál.</span>
+      </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiMini label="Tanulási korrekciók" value={kpis?.feedback_total?.value} sub="feedback bejegyzés"    color="orange" />
@@ -43,9 +49,9 @@ export default function InsightsPage() {
           </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <AIBlock label="Azonosított problémák" color="red"   items={ai?.problems}       loading={loading} />
-          <AIBlock label="Észlelt trendek"       color="amber" items={ai?.trends}          loading={loading} />
-          <AIBlock label="Ajánlott teendők"      color="green" items={ai?.recommendations} loading={loading} />
+          <AIBlock label="Azonosított problémák" color="red"   items={ai?.problems}       loading={loading} isLight={isLight} />
+          <AIBlock label="Észlelt trendek"       color="amber" items={ai?.trends}          loading={loading} isLight={isLight} />
+          <AIBlock label="Ajánlott teendők"      color="green" items={ai?.recommendations} loading={loading} isLight={isLight} />
         </div>
       </div>
     </div>
@@ -70,16 +76,16 @@ function KpiMini({ label, value, sub, color }) {
   )
 }
 
-function AIBlock({ label, color, items, loading }) {
+function AIBlock({ label, color, items, loading, isLight }) {
   const colors = { red: 'text-red-400', amber: 'text-amber-400', green: 'text-green-400' }
   const arrows = { red: 'text-red-500', amber: 'text-amber-500', green: 'text-green-500' }
   return (
-    <div className="bg-white/[.03] border border-white/7 rounded-lg p-3">
+    <div className={clsx('border rounded-lg p-3', isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[.03] border-white/7')}>
       <div className={clsx('text-[8.5px] font-bold uppercase tracking-[.14em] font-mono mb-2', colors[color])}>{label}</div>
       {loading
         ? <><Skeleton className="h-2.5 mb-1.5" /><Skeleton className="h-2.5 w-3/4 mb-1.5" /><Skeleton className="h-2.5 w-1/2" /></>
         : (items || []).map((t, i) => (
-          <div key={i} className="flex gap-2 py-1.5 border-b border-white/5 last:border-none text-[12.5px] text-zinc-400">
+          <div key={i} className={clsx('flex gap-2 py-1.5 border-b last:border-none text-[12.5px]', isLight ? 'text-slate-600 border-slate-100' : 'text-zinc-400 border-white/5')}>
             <span className={clsx('text-[11px] flex-shrink-0 mt-0.5', arrows[color])}>→</span>
             <span>{t}</span>
           </div>

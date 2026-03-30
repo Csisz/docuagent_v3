@@ -63,14 +63,20 @@ export function LiveDot({ status }) {
 }
 
 export function ConfBar({ value }) {
-  const pct = Math.round((value || 0) * 100)
-  const color = pct >= 70 ? 'bg-green-400' : pct >= 40 ? 'bg-amber-400' : 'bg-red-400'
+  if (value == null) return <span className="text-zinc-600 text-[11px] font-mono">—</span>
+  const pct = Math.round(value * 100)
+  const color = pct >= 80 ? 'bg-green-400' : pct >= 60 ? 'bg-amber-400' : 'bg-red-400'
+  const textColor = pct >= 80 ? 'text-green-400' : pct >= 60 ? 'text-amber-400' : 'text-red-400'
+  const label = pct >= 80 ? 'Megbízható' : pct >= 60 ? 'Elfogadható' : 'Alacsony'
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="w-11 h-0.5 bg-white/10 rounded-full overflow-hidden flex-shrink-0">
-        <div className={clsx('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
+    <div
+      className="flex items-center gap-1.5 cursor-help"
+      title={`AI megbízhatóság: ${pct}% — ${label}\n80% felett: megbízható döntés\n60–80%: felülvizsgálat ajánlott\n60% alatt: emberi ellenőrzés szükséges`}
+    >
+      <div className="w-14 h-1.5 bg-white/10 rounded-full overflow-hidden flex-shrink-0">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="font-mono text-[10.5px] text-zinc-500">{pct}%</span>
+      <span className={`text-[10px] font-mono font-bold ${textColor}`}>{pct}%</span>
     </div>
   )
 }

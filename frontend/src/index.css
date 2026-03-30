@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* font-mono használati szabály:
+   Csak valóban technikai adatoknál: timestamp-ok, API kulcsok, kód/hash értékek,
+   mértékegységek számokkal (pl. "87%", "4h").
+   Általános szöveg, gombok, nav feliratok: NE használj font-mono-t. */
+
 @layer base {
   :root {
     --neon: #ff7820;

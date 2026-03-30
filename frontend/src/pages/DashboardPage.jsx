@@ -8,6 +8,7 @@ import clsx from 'clsx'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../services/api'
+import { STATUS_LABELS } from '../constants/labels'
 
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -108,10 +109,10 @@ export default function DashboardPage() {
     ),
     status_cards: (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatusCard label="NEW"             subLabel="Feldolgozásra vár"  count={d?.status_breakdown?.NEW}             badge="new"       filter="NEW" />
-        <StatusCard label="AI_ANSWERED"     subLabel="AI válaszolt"       count={d?.status_breakdown?.AI_ANSWERED}     badge="ai"        filter="AI_ANSWERED" />
-        <StatusCard label="NEEDS_ATTENTION" subLabel="Emberi beavatkozás" count={d?.status_breakdown?.NEEDS_ATTENTION} badge="attention" filter="NEEDS_ATTENTION" />
-        <StatusCard label="CLOSED"          subLabel="Lezárva"            count={d?.status_breakdown?.CLOSED}          badge="closed"    filter="CLOSED" />
+        <StatusCard label={STATUS_LABELS.NEW}             subLabel="Feldolgozásra vár"  count={d?.status_breakdown?.NEW}             badge="new"       filter="NEW" />
+        <StatusCard label={STATUS_LABELS.AI_ANSWERED}     subLabel="AI válaszolt"       count={d?.status_breakdown?.AI_ANSWERED}     badge="ai"        filter="AI_ANSWERED" />
+        <StatusCard label={STATUS_LABELS.NEEDS_ATTENTION} subLabel="Emberi beavatkozás" count={d?.status_breakdown?.NEEDS_ATTENTION} badge="attention" filter="NEEDS_ATTENTION" highlighted={d?.status_breakdown?.NEEDS_ATTENTION > 0} />
+        <StatusCard label={STATUS_LABELS.CLOSED}          subLabel="Lezárva"            count={d?.status_breakdown?.CLOSED}          badge="closed"    filter="CLOSED" />
       </div>
     ),
     roi_card:  <ROICard aiAnswered={d?.kpis?.ai_answered?.value} />,
@@ -146,14 +147,29 @@ export default function DashboardPage() {
       <p className="text-[11.5px] text-zinc-500 font-mono -mb-1">Valós idejű AI aktivitás</p>
 
       {d?.alerts?.map((a,i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-red-400/20 bg-red-400/[.08] text-[13px]">
-          <span>⚠</span>
-          <span className="text-zinc-400" dangerouslySetInnerHTML={{ __html: a.message }} />
+        <div key={i} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-red-400/20 bg-red-400/[.08] text-[13px]">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4 text-red-400 flex-shrink-0">
+            <path d="M8 2L14.5 13H1.5L8 2z" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M8 6v4M8 11.5v.5" strokeLinecap="round"/>
+          </svg>
+          <span className="text-zinc-300">{a.message}</span>
         </div>
       ))}
 
-      <div className="flex items-center gap-2 text-[10px] text-zinc-600 font-mono select-none">
-        <span>⠿</span><span>Húzd a blokkokat a sorrend megváltoztatásához — automatikusan ment</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[11px] text-zinc-600 select-none">
+          <svg viewBox="0 0 12 12" fill="currentColor" className="w-3 h-3 opacity-50"><circle cx="4" cy="3" r="1"/><circle cx="8" cy="3" r="1"/><circle cx="4" cy="6" r="1"/><circle cx="8" cy="6" r="1"/><circle cx="4" cy="9" r="1"/><circle cx="8" cy="9" r="1"/></svg>
+          <span>Fogd meg a kártyák bal szélét és húzd át a sorrend módosításához</span>
+        </div>
+        <button
+          onClick={() => {
+            setLayout(DEFAULT_LAYOUT)
+            saveLayout(DEFAULT_LAYOUT)
+          }}
+          className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 border border-white/8 rounded px-2 py-1 transition-colors"
+        >
+          Visszaállítás
+        </button>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter}
@@ -187,12 +203,24 @@ function SLACard() {
   const [config,     setConfig]     = useState({ warning_hours: 4, breach_hours: 24 })
   const [saved,      setSaved]      = useState(false)
   const [showConfig, setShowConfig] = useState(false)
+  const [isNewBreach, setIsNewBreach] = useState(false)
   const debounceRef = useRef(null)
+  const prevBreachRef = useRef(null)
 
   useEffect(() => {
     api.getSlaConfig().then(setConfig).catch(() => {})
-    api.getSlaSummary().then(setSummary).catch(() => {})
-    const iv = setInterval(() => api.getSlaSummary().then(setSummary).catch(() => {}), 30000)
+    api.getSlaSummary().then(data => {
+      prevBreachRef.current = data.breach_count
+      setSummary(data)
+    }).catch(() => {})
+    const iv = setInterval(() => api.getSlaSummary().then(data => {
+      if (prevBreachRef.current !== null && data.breach_count > prevBreachRef.current) {
+        setIsNewBreach(true)
+        setTimeout(() => setIsNewBreach(false), 10000)
+      }
+      prevBreachRef.current = data.breach_count
+      setSummary(data)
+    }).catch(() => {}), 30000)
     return () => clearInterval(iv)
   }, [])
 
@@ -233,8 +261,11 @@ function SLACard() {
         </div>
         <div className="flex items-center gap-2">
           {breach > 0 && (
-            <span className="text-[9.5px] font-bold font-mono px-2 py-1 rounded bg-red-500/15 text-red-400 border border-red-400/25 animate-pulse">
-              {breach} LEJÁRT
+            <span className={clsx(
+              'text-[9.5px] font-bold font-mono px-2 py-1 rounded bg-red-500/15 text-red-400 border border-red-400/25',
+              isNewBreach && 'animate-pulse'
+            )}>
+              {breach} lejárt SLA
             </span>
           )}
           {saved && (
@@ -437,13 +468,24 @@ function KpiCard({ label, value, sub, accent, suffix='' }) {
   )
 }
 
-function StatusCard({ label, subLabel, count, badge, filter }) {
+function StatusCard({ label, subLabel, count, badge, filter, highlighted }) {
   const navigate = useNavigate()
   const bs = { new:'bg-blue-500/15 text-blue-400 border border-blue-400/20', ai:'bg-green-500/15 text-green-400 border border-green-400/20', attention:'bg-amber-500/15 text-amber-400 border border-amber-400/20', closed:'bg-zinc-500/15 text-zinc-400 border border-zinc-400/20' }
   return (
-    <button onClick={()=>navigate('/emails',{state:{filter}})} className="glass rounded-xl px-4 py-3 flex items-center gap-2.5 transition-all hover:border-white/20 hover:scale-[1.02] text-left w-full cursor-pointer">
+    <button
+      onClick={()=>navigate('/emails',{state:{filter}})}
+      className={clsx(
+        'glass rounded-xl px-4 py-3 flex items-center gap-2.5 transition-all text-left w-full cursor-pointer',
+        highlighted
+          ? 'hover:border-amber-400/40 hover:scale-[1.02] ring-1 ring-amber-400/20'
+          : 'hover:border-white/20 hover:scale-[1.02]'
+      )}
+    >
       <span className={clsx('text-[9.5px] font-bold font-mono px-2 py-1 rounded flex-shrink-0 whitespace-nowrap',bs[badge])}>{label}</span>
       <span className="text-[10.5px] text-zinc-500 truncate flex-1 hidden sm:block">{subLabel}</span>
+      {highlighted && count > 0 && (
+        <span className="text-[9px] font-mono text-amber-400 animate-pulse hidden lg:block">Teendő van</span>
+      )}
       <span className="text-xl font-bold ml-auto">{count??'—'}</span>
     </button>
   )
@@ -463,6 +505,8 @@ function AIPanel({ emailCount }) {
   const [ai,setAi]         = useState(aiCache)
   const [ts,setTs]         = useState(null)
   const [loading,setLoading] = useState(false)
+  const { theme } = useStore()
+  const isLight = theme === 'light'
   const load = useCallback(async(force=false)=>{
     if(!force&&aiCache&&aiCacheEmailCount===emailCount){setAi(aiCache);return}
     setLoading(true)
@@ -483,16 +527,26 @@ function AIPanel({ emailCount }) {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <AIBlock label="Problémák" color="red"   items={ai?.problems}        loading={loading&&!ai} />
-        <AIBlock label="Trendek"   color="amber" items={ai?.trends}          loading={loading&&!ai} />
-        <AIBlock label="Teendők"   color="green" items={ai?.recommendations} loading={loading&&!ai} />
+        <AIBlock label="Problémák" color="red"   items={ai?.problems}        loading={loading&&!ai} isLight={isLight} />
+        <AIBlock label="Trendek"   color="amber" items={ai?.trends}          loading={loading&&!ai} isLight={isLight} />
+        <AIBlock label="Teendők"   color="green" items={ai?.recommendations} loading={loading&&!ai} isLight={isLight} />
       </div>
     </div>
   )
 }
-function AIBlock({label,color,items,loading}){
-  const cs={red:'text-red-400',amber:'text-amber-400',green:'text-green-400'}
-  return <div className="bg-white/[.03] border border-white/7 rounded-lg p-3"><div className={clsx('text-[8.5px] font-bold uppercase tracking-[.14em] font-mono mb-2',cs[color])}>{label}</div>{loading?<><Skeleton className="h-2.5 mb-1.5"/><Skeleton className="h-2.5 w-3/4"/></>:(items||[]).map((t,i)=><div key={i} className="text-[12px] text-zinc-400 py-1 border-b border-white/5 last:border-none leading-snug">{t}</div>)}</div>
+function AIBlock({ label, color, items, loading, isLight }) {
+  const cs = { red: 'text-red-400', amber: 'text-amber-400', green: 'text-green-400' }
+  return (
+    <div className={clsx('border rounded-lg p-3', isLight ? 'bg-slate-50 border-slate-200' : 'bg-white/[.03] border-white/7')}>
+      <div className={clsx('text-[8.5px] font-bold uppercase tracking-[.14em] font-mono mb-2', cs[color])}>{label}</div>
+      {loading
+        ? <><Skeleton className="h-2.5 mb-1.5"/><Skeleton className="h-2.5 w-3/4"/></>
+        : (items||[]).map((t,i) => (
+          <div key={i} className={clsx('text-[12px] py-1 border-b last:border-none leading-snug', isLight ? 'text-slate-600 border-slate-100' : 'text-zinc-400 border-white/5')}>{t}</div>
+        ))
+      }
+    </div>
+  )
 }
 
 function ActivityFeed({ items }) {
@@ -536,7 +590,20 @@ function SystemStatus() {
         </div>
       ))}
       <div className="flex gap-2 mt-3">
-        <button className="btn-ghost text-[11px] px-3 py-1.5" onClick={()=>window.open('http://localhost:5678','_blank')}>n8n ↗</button>
+        <button
+          className="btn-ghost text-[11px] px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+          onClick={() => {
+            const url = import.meta.env.VITE_N8N_PUBLIC_URL
+            if (url) {
+              window.open(url, '_blank')
+            } else {
+              alert('Az n8n URL nincs konfigurálva. Kérd meg a rendszergazdát, hogy állítsa be a VITE_N8N_PUBLIC_URL környezeti változót.')
+            }
+          }}
+          title={import.meta.env.VITE_N8N_PUBLIC_URL ? 'n8n megnyitása' : 'n8n URL nincs beállítva'}
+        >
+          n8n ↗
+        </button>
         <button className="btn-ghost text-[11px] px-3 py-1.5" onClick={()=>window.location.reload()}>↻ Sync</button>
       </div>
     </div>

@@ -12,7 +12,7 @@ import time
 import uuid
 import logging
 from pathlib import Path
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Security
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 import db.queries as q
 from models.schemas import RagRequest
@@ -22,7 +22,7 @@ from core.config import (
     RAG_FALLBACK_THRESHOLD,
     FALLBACK_REPLY_HU, FALLBACK_REPLY_EN, FALLBACK_REPLY_DE
 )
-from core.security import require_api_key
+from core.security import get_current_user
 
 router = APIRouter(prefix="/api", tags=["Documents"])
 log    = logging.getLogger("docuagent")
@@ -51,7 +51,7 @@ async def upload_doc(
     tag:            str = Form("general"),
     department:     str = Form("General"),
     access_level:   str = Form("employee"),
-    _auth=Security(require_api_key)
+    current_user:   dict = Depends(get_current_user)
 ):
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
@@ -72,6 +72,14 @@ async def upload_doc(
         qdrant_ok, collection = await qdrant_service.store_document(
             doc_id, file.filename, text, tag, department, access_level, uploader_email
         )
+
+    # Verziózás: ha ugyanolyan nevű fájl már létezik, töröld a régit
+    existing = await q.get_document_by_filename(file.filename)
+    if existing:
+        old_collection = existing.get("qdrant_collection") or qdrant_service.tag_to_collection(existing.get("tag", "general"))
+        await qdrant_service.delete_by_doc_id(str(existing["id"]), old_collection)
+        await q.soft_delete_document(str(existing["id"]))
+        log.info(f"Document versioned: replaced {existing['id']} with new upload of {file.filename}")
 
     await q.insert_document(
         doc_id, file.filename, uploader_name, uploader_email,
@@ -193,4 +201,38 @@ async def rag_query(req: RagRequest):
         "confidence": round(top_score, 3),
         "sources":    source_docs,
         "latency_ms": latency_ms,
+    }
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Dokumentum törlése: DB soft-delete + Qdrant hard-delete + fájl törlése."""
+    doc = await q.get_document_by_id(doc_id)
+    if not doc:
+        raise HTTPException(404, "Dokumentum nem található")
+
+    # Qdrant vektorok törlése
+    collection = doc.get("qdrant_collection") or qdrant_service.tag_to_collection(doc.get("tag", "general"))
+    deleted_vectors = await qdrant_service.delete_by_doc_id(doc_id, collection)
+
+    # DB soft delete
+    await q.soft_delete_document(doc_id)
+
+    # Fájl törlése lemezről
+    import glob as _glob
+    for f in _glob.glob(str(UPLOAD_DIR / f"*_{doc['filename']}")):
+        try:
+            Path(f).unlink()
+        except Exception:
+            pass
+
+    log.info(f"Document deleted: {doc_id} filename={doc['filename']} vectors={deleted_vectors}")
+    return {
+        "status":          "ok",
+        "deleted":         doc_id,
+        "filename":        doc["filename"],
+        "vectors_removed": deleted_vectors,
     }

@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../../store'
 import { getApiKey, setApiKey } from '../../services/api'
+import { useAuth } from '../../context/AuthContext'
 
 const NAV = [
   {
@@ -30,10 +31,17 @@ const NAV = [
       { to: '/insights',  label: 'AI Insights',      icon: ChartIcon },
     ]
   },
+  {
+    section: 'Tudásbázis',
+    items: [
+      { to: '/chat',      label: 'Chat',              icon: ChatIcon },
+    ]
+  },
 ]
 
 export default function Sidebar() {
   const { mobileNavOpen, closeMobileNav, theme, toggleTheme, dashData } = useStore()
+  const { user, tenant, logout } = useAuth()
   const [showApiModal, setShowApiModal] = useState(false)
   const [apiKeyInput, setApiKeyInput]   = useState('')
   const apiKeySet = !!getApiKey()
@@ -171,15 +179,25 @@ export default function Sidebar() {
 
         {/* User */}
         <div className="px-2 py-2 border-t border-white/7">
-          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg">
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#1a56db] to-[#7c3aed] flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0">
-              VH
+              {(user?.full_name || user?.email || 'U').slice(0, 2).toUpperCase()}
             </div>
-            <div>
-              <div className="text-[12.5px] text-white/80 font-medium leading-none mb-0.5">{company}</div>
-              <div className="text-[9.5px] text-white/30 font-mono">Admin</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12.5px] text-white/80 font-medium leading-none mb-0.5 truncate">
+                {user?.full_name || user?.email || company}
+              </div>
+              <div className="text-[9.5px] text-white/30 font-mono">
+                {tenant?.name ? `${tenant.name} · ` : ''}{user?.role || 'agent'}
+              </div>
             </div>
           </div>
+          <button
+            onClick={logout}
+            className="w-full text-left px-3 py-1 text-[11px] text-red-400/70 hover:text-red-400 transition-colors"
+          >
+            Kijelentkezés
+          </button>
         </div>
 
       </aside>
@@ -252,4 +270,7 @@ function DocIcon({ className }) {
 }
 function ChartIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M2 10l3-4 2.5 2.5 2.5-4.5 2 2"/><path d="M1 13h12"/></svg>
+}
+function ChatIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M1.5 2h11a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H4l-2.5 2V2.5A.5.5 0 0 1 1.5 2z"/></svg>
 }

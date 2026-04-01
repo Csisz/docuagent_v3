@@ -1,5 +1,7 @@
 # DocuAgent v3 — Production System
 
+> **Status: v3.4 — in development**
+
 ## Architecture
 
 ```
@@ -31,24 +33,20 @@ Gmail → n8n WF1 → POST /classify (FastAPI) → decision
 
 ## Quick Start
 
-### 1. Start infrastructure
+### 1. Environment setup
 ```bash
 cp .env.example .env
-# Fill in OPENAI_API_KEY and other values
-docker compose up -d
+# Töltsd ki: OPENAI_API_KEY, POSTGRES_*, stb.
 ```
 
-### 2. Install backend
+### 2. Indítás
 ```bash
-cd backend
-pip install -r requirements.txt
+docker compose up --build -d
 ```
 
-### 3. Start backend
+### 3. Migration futtatása (első indítás vagy frissítés után)
 ```bash
-python main.py
-# → http://localhost:8000
-# → http://localhost:8000/docs (API docs)
+docker exec docuagent_v3-postgres-1 psql -U postgres -d docuagent -f /docker-entrypoint-initdb.d/migrate_v3_4.sql
 ```
 
 ### 4. Open dashboard
@@ -56,7 +54,19 @@ python main.py
 http://localhost:8000
 ```
 
-### 5. Configure n8n WF1
+### 5. API key beállítása a dashboardon
+
+A dashboardon a **Settings** → **API Key** menüpont alatt add meg az OpenAI API kulcsot,
+vagy állítsd be a `.env` fájlban az `OPENAI_API_KEY` értékét.
+
+### 6. n8n workflow import
+
+1. Nyisd meg az n8n UI-t: `http://localhost:5678`
+2. **Import** → válaszd ki az `n8n/` mappában lévő `.json` workflow fájlokat
+3. Állítsd be a Gmail és webhook credential-öket
+4. Aktiváld a workflow-kat
+
+### 7. Configure n8n WF1
 See `n8n/WF1_INTEGRATION.md`
 
 ## Email Status Flow

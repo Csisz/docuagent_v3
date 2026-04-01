@@ -1,10 +1,21 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+function getJwtToken() {
+  return localStorage.getItem('docuagent_token') || ''
+}
+
 async function req(path, opts = {}) {
+  const jwt = getJwtToken()
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-API-Key': getApiKey(),
+    ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+    ...opts.headers,
+  }
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
     signal: opts.signal || AbortSignal.timeout(10000),
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': getApiKey(), ...opts.headers },
+    headers,
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()

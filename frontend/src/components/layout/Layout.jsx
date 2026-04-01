@@ -3,15 +3,16 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Topbar  from './Topbar'
 import { useDashboard, useHealth } from '../../hooks'
-import { api } from '../../services/api'
 import { useToast } from '../../hooks'
 import { useStore } from '../../store'
+import { useAuth } from '../../context/AuthContext'
 
 export default function Layout() {
   const fileRef  = useRef()
   const toast    = useToast()
   const { reload } = useDashboard()
   const { theme } = useStore()
+  const { authFetch } = useAuth()
   const [uploadQueue, setUploadQueue] = useState([])
   useHealth()
 
@@ -46,7 +47,13 @@ export default function Layout() {
       fd.append('tag', 'general')
 
       try {
-        const d = await api.upload(fd)
+        const res = await authFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/upload`, {
+          method: 'POST',
+          body: fd,
+          signal: AbortSignal.timeout(60000),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const d = await res.json()
         setUploadQueue(q => q.map((item, idx) =>
           idx === i ? { ...item, state: 'processing', info: 'Qdrant indexelés...' } : item
         ))

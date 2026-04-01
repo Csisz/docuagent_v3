@@ -11,13 +11,19 @@ node_modules/
 # python
 __pycache__/
 *.pyc
+*.pyo
 
 # n8n
 n8n/*.json
 
 # data
 uploads/
+backend/uploads/
 *.log
+
+# build
+dist/
+.vite/
 
 # OS
 .DS_Store

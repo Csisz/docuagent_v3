@@ -7,6 +7,7 @@ import { useStore } from '../store'
 import { StatusBadge, ConfBar, Skeleton } from '../components/ui'
 import { useToast } from '../hooks'
 import { STATUS_LABELS, FILTER_LABELS, CATEGORY_LABELS, SENTIMENT_LABELS } from '../constants/labels'
+import ReplyEditor from '../components/ReplyEditor'
 
 const FILTERS = [null, 'NEW', 'AI_ANSWERED', 'NEEDS_ATTENTION', 'CLOSED']
 const STATUSES = ['NEW', 'AI_ANSWERED', 'NEEDS_ATTENTION', 'CLOSED']
@@ -254,6 +255,7 @@ export default function EmailsPage({ defaultFilter }) {
                     onSelect={() => toggleSelect(e.id)}
                     onStatusChange={handleStatusChange}
                     onDelete={handleDelete}
+                    onRefresh={() => loadEmails(activeFilter)}
                     theme={theme}
                   />
                 ))
@@ -275,8 +277,9 @@ export default function EmailsPage({ defaultFilter }) {
   )
 }
 
-function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusChange, onDelete, theme }) {
+function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusChange, onDelete, onRefresh, theme }) {
   const isLight = theme === 'light'
+  const [showReplyEditor, setShowReplyEditor] = useState(false)
   let aiD = {}
   try { aiD = typeof e.ai_decision === 'string' ? JSON.parse(e.ai_decision) : e.ai_decision || {} } catch {}
 
@@ -452,6 +455,30 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
                 )}>
                   {e.ai_response || 'Nincs AI válasz'}
                 </div>
+
+                {e.status === 'NEEDS_ATTENTION' && (
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <button
+                      onClick={() => setShowReplyEditor(v => !v)}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        background: '#2563eb', color: 'white',
+                        border: 'none', borderRadius: '8px',
+                        cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 500
+                      }}
+                    >
+                      ✍️ Válasz szerkesztése & küldése
+                    </button>
+
+                    {showReplyEditor && (
+                      <ReplyEditor
+                        email={e}
+                        onSent={() => { setShowReplyEditor(false); onRefresh?.() }}
+                        onClose={() => setShowReplyEditor(false)}
+                      />
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </td>

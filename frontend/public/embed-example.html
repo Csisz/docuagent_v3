@@ -1,0 +1,51 @@
+<!-- DocuAgent Chat Widget beágyazása -->
+<!-- Másold be ezt a kódot a weboldalad </body> tag elé -->
+
+<style>
+  #docuagent-widget {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 360px;
+    height: 520px;
+    z-index: 9999;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+    display: none;
+  }
+  #docuagent-toggle {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 1.5rem;
+    z-index: 10000;
+    box-shadow: 0 4px 16px rgba(37,99,235,0.4);
+  }
+</style>
+
+<iframe
+  id="docuagent-widget"
+  src="https://YOUR_DOMAIN/widget.html?tenant_slug=YOUR_SLUG&name=Asszisztens&api_url=https://YOUR_API_DOMAIN"
+  frameborder="0"
+></iframe>
+
+<button id="docuagent-toggle" onclick="toggleWidget()">💬</button>
+
+<script>
+  let open = false;
+  function toggleWidget() {
+    open = !open;
+    const w = document.getElementById('docuagent-widget');
+    const b = document.getElementById('docuagent-toggle');
+    w.style.display = open ? 'block' : 'none';
+    b.textContent = open ? '✕' : '💬';
+  }
+</script>

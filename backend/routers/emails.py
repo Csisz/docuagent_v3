@@ -1,16 +1,17 @@
 """
 Email kezelés: lista, státusz frissítés, törlés, ingest.
 """
+import os
 import uuid
 import logging
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Security
+from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from typing import Optional
 
 import db.queries as q
 from models.schemas import StatusUpdateRequest, FeedbackRequest, EmailStatus
 from core.config import OPENAI_API_KEY, N8N_LABEL_WEBHOOK
-from core.security import require_api_key
+from core.security import require_api_key, get_current_user_optional, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Emails"])
 log    = logging.getLogger("docuagent")
@@ -21,9 +22,11 @@ async def list_emails(
     status: Optional[str] = None,
     limit:  int = 50,
     offset: int = 0,
+    current_user: Optional[dict] = Depends(get_current_user_optional),
     _auth=Security(require_api_key)
 ):
-    rows, total = await q.list_emails(status, limit, offset)
+    tenant_id = current_user.get("tenant_id") if current_user else None
+    rows, total = await q.list_emails(status, limit, offset, tenant_id=tenant_id)
     return {
         "emails": [
             {
@@ -135,6 +138,13 @@ async def ingest_email(request: Request):
     subject    = data.get("subject", "")
     sender     = data.get("from", data.get("sender", ""))
     body       = data.get("body", data.get("text", ""))
+
+    # Tenant meghatározása — prioritás sorrendben:
+    # 1. Ha az n8n küldi explicit (jövőbeli multi-tenant)
+    # 2. Default: az egyetlen aktív tenant
+    tenant_id = data.get("tenant_id") or "00000000-0000-0000-0000-000000000001"
+
+    
     category   = data.get("category", "other")
     urgent     = bool(data.get("urgent", False))
     ai_reply   = data.get("ai_reply", "")
@@ -146,7 +156,7 @@ async def ingest_email(request: Request):
 
     try:
         await q.insert_email(email_id, message_id, subject, sender,
-                             body, category, urgent, ai_reply or None)
+                     body, category, urgent, ai_reply or None, tenant_id)
     except Exception as e:
         log.error(f"Insert error: {e}")
         return {"status": "error", "detail": str(e)}
@@ -186,4 +196,63 @@ async def ingest_email(request: Request):
         "classified_status": status,
         "confidence":        confidence,
         "learned_override":  learned,
+    }
+
+
+@router.post("/emails/{email_id}/send-reply")
+async def send_reply(
+    email_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Agent által jóváhagyott válasz elküldése.
+    1. Ha N8N_SEND_REPLY_WEBHOOK be van állítva → n8n-en Gmail reply
+    2. Fallback: csak DB frissítés + napló
+    """
+    data = await request.json()
+    reply_text = data.get("reply", "").strip()
+    if not reply_text:
+        raise HTTPException(400, "Üres válasz nem küldhető")
+
+    row = await q.get_email_by_id(email_id)
+    if not row:
+        raise HTTPException(404, "Email nem található")
+
+    await q.update_email_reply(email_id, reply_text)
+    await q.insert_feedback(
+        email_id,
+        row["status"],
+        "AI_ANSWERED",
+        f"Human approved by {current_user.get('email', 'unknown')}"
+    )
+    await q.update_email_status(email_id, "AI_ANSWERED")
+
+    n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
+    sent_via = "dashboard_only"
+
+    if n8n_send_webhook and row.get("message_id"):
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                resp = await c.post(n8n_send_webhook, json={
+                    "email_id":         email_id,
+                    "gmail_message_id": row["message_id"],
+                    "reply_text":       reply_text,
+                    "approved_by":      current_user.get("email"),
+                    "sender":           row["sender"],
+                    "subject":          row["subject"],
+                })
+                if resp.status_code < 300:
+                    sent_via = "gmail_via_n8n"
+                else:
+                    log.warning(f"n8n send webhook failed: {resp.status_code}")
+        except Exception as e:
+            log.warning(f"n8n send webhook error: {e}")
+
+    log.info(f"Reply sent: {email_id} via={sent_via} by={current_user.get('email')}")
+    return {
+        "status":      "ok",
+        "email_id":    email_id,
+        "sent_via":    sent_via,
+        "approved_by": current_user.get("email"),
     }

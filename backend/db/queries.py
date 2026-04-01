@@ -25,16 +25,15 @@ async def get_email_by_message_id(message_id: str):
     )
 
 
-async def insert_email(email_id: str, message_id: str, subject: str,
-                       sender: str, body: str, category: str,
-                       urgent: bool, ai_reply: Optional[str]):
+async def insert_email(email_id, message_id, subject, sender, body,
+                       category, urgent, ai_reply, tenant_id=None):
     return await db.execute(
         """INSERT INTO emails
            (id, message_id, subject, sender, body, category,
-            status, urgent, ai_response, confidence, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,'NEW',$7,$8,0.0,NOW())""",
+            status, urgent, ai_response, confidence, tenant_id, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,'NEW',$7,$8,0.0,$9,NOW())""",
         email_id, message_id, subject, sender, body, category,
-        urgent, ai_reply or None
+        urgent, ai_reply or None, tenant_id
     )
 
 
@@ -66,12 +65,25 @@ async def update_email_status(email_id: str, status: str):
     )
 
 
-async def list_emails(status: Optional[str], limit: int, offset: int):
+async def list_emails(status: Optional[str], limit: int, offset: int,
+                      tenant_id: Optional[str] = None):
     fields = """id, subject, sender, body, category, status,
                 urgent, confidence, ai_response, ai_decision, created_at,
                 COALESCE(urgency_score, 0) AS urgency_score,
                 COALESCE(sentiment, 'neutral') AS sentiment"""
-    if status:
+    if tenant_id and status:
+        rows = await db.fetch(
+            f"SELECT {fields} FROM emails WHERE tenant_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT $3 OFFSET $4",
+            tenant_id, status, limit, offset
+        )
+        total = await db.fetchrow("SELECT COUNT(*) FROM emails WHERE tenant_id=$1 AND status=$2", tenant_id, status)
+    elif tenant_id:
+        rows = await db.fetch(
+            f"SELECT {fields} FROM emails WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            tenant_id, limit, offset
+        )
+        total = await db.fetchrow("SELECT COUNT(*) FROM emails WHERE tenant_id=$1", tenant_id)
+    elif status:
         rows = await db.fetch(
             f"SELECT {fields} FROM emails WHERE status=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             status, limit, offset
@@ -145,9 +157,41 @@ async def insert_document(doc_id: str, filename: str, uploader: str,
     )
 
 
-async def list_documents(limit: int = 10):
+async def get_document_by_id(doc_id: str):
+    return await db.fetchrow("SELECT * FROM documents WHERE id=$1", doc_id)
+
+
+async def soft_delete_document(doc_id: str):
+    return await db.execute(
+        "UPDATE documents SET deleted_at=NOW() WHERE id=$1", doc_id
+    )
+
+
+async def get_document_by_filename(filename: str, tenant_id: str = None):
+    if tenant_id:
+        return await db.fetchrow(
+            "SELECT * FROM documents WHERE filename=$1 AND tenant_id=$2 AND deleted_at IS NULL",
+            filename, tenant_id
+        )
+    return await db.fetchrow(
+        "SELECT * FROM documents WHERE filename=$1 AND deleted_at IS NULL ORDER BY created_at DESC",
+        filename
+    )
+
+
+async def list_documents(limit: int = 10, tenant_id: str = None):
+    if tenant_id:
+        return await db.fetch(
+            """SELECT id, filename, uploader, size_kb, lang, created_at, tag, qdrant_collection
+               FROM documents
+               WHERE deleted_at IS NULL AND tenant_id=$1
+               ORDER BY created_at DESC LIMIT $2""",
+            tenant_id, limit
+        )
     return await db.fetch(
-        "SELECT id, filename, uploader, size_kb, lang, created_at, tag FROM documents ORDER BY created_at DESC LIMIT $1",
+        """SELECT id, filename, uploader, size_kb, lang, created_at, tag, qdrant_collection
+           FROM documents WHERE deleted_at IS NULL
+           ORDER BY created_at DESC LIMIT $1""",
         limit
     )
 
@@ -297,3 +341,65 @@ async def get_sla_emails(warning_hours: float, breach_hours: float):
            WHERE status NOT IN ('CLOSED', 'AI_ANSWERED')
            ORDER BY created_at ASC""",
     )
+
+
+# ══════════════════════════════════════════════════════════════
+# CHAT SESSIONS
+# ══════════════════════════════════════════════════════════════
+
+async def create_chat_session(tenant_id: str, user_id: str, title: str = None):
+    return await db.fetchrow(
+        """INSERT INTO chat_sessions (tenant_id, user_id, title)
+           VALUES ($1, $2, $3) RETURNING *""",
+        tenant_id, user_id, title
+    )
+
+
+async def get_chat_session(session_id: str):
+    return await db.fetchrow(
+        "SELECT * FROM chat_sessions WHERE id=$1", session_id
+    )
+
+
+async def list_chat_sessions(tenant_id: str, user_id: str, limit: int = 20):
+    return await db.fetch(
+        """SELECT cs.*, COUNT(cm.id) AS message_count
+           FROM chat_sessions cs
+           LEFT JOIN chat_messages cm ON cm.session_id = cs.id
+           WHERE cs.tenant_id=$1 AND cs.user_id=$2
+           GROUP BY cs.id
+           ORDER BY cs.updated_at DESC LIMIT $3""",
+        tenant_id, user_id, limit
+    )
+
+
+async def insert_chat_message(session_id: str, role: str, content: str,
+                               sources: list = None, confidence: float = None):
+    import json as _json
+    return await db.fetchrow(
+        """INSERT INTO chat_messages (session_id, role, content, sources, confidence)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *""",
+        session_id, role, content,
+        _json.dumps(sources or []), confidence
+    )
+
+
+async def get_chat_history(session_id: str, limit: int = 10):
+    """Utolsó N üzenet a session-ből, DESC sorrendben (legújabb először)."""
+    return await db.fetch(
+        """SELECT role, content FROM chat_messages
+           WHERE session_id=$1
+           ORDER BY created_at DESC LIMIT $2""",
+        session_id, limit
+    )
+
+
+async def update_session_title(session_id: str, title: str):
+    await db.execute(
+        "UPDATE chat_sessions SET title=$1, updated_at=NOW() WHERE id=$2",
+        title, session_id
+    )
+
+
+async def delete_chat_session(session_id: str):
+    await db.execute("DELETE FROM chat_sessions WHERE id=$1", session_id)

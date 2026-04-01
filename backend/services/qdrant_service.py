@@ -152,6 +152,45 @@ async def search(query_text: str, collection: str = DEFAULT_COLLECTION,
     return results
 
 
+async def delete_by_doc_id(doc_id: str, collection: str = None) -> int:
+    """
+    Törli az összes vektort ami egy adott doc_id-hoz tartozik.
+    Ha collection=None → az összes ismert collection-ben törli.
+    Visszaadja az érintett operation_id összeget (közelítő mutató).
+    """
+    collections_to_search = [collection] if collection else list(set(COLLECTION_MAP.values()))
+    deleted_total = 0
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        for col in collections_to_search:
+            try:
+                r = await client.post(
+                    f"{QDRANT_URL}/collections/{col}/points/delete",
+                    json={"filter": {"must": [{"key": "doc_id", "match": {"value": doc_id}}]}}
+                )
+                if r.status_code == 200:
+                    deleted_total += 1
+                    log.info(f"Qdrant delete: doc_id={doc_id} collection={col}")
+            except Exception as e:
+                log.warning(f"Qdrant delete hiba ({col}): {e}")
+
+    return deleted_total
+
+
+async def delete_by_filename(filename: str, collection: str = DEFAULT_COLLECTION) -> bool:
+    """Törli az összes vektort ami egy adott fájlnévhez tartozik."""
+    async with httpx.AsyncClient(timeout=20) as client:
+        try:
+            r = await client.post(
+                f"{QDRANT_URL}/collections/{collection}/points/delete",
+                json={"filter": {"must": [{"key": "filename", "match": {"value": filename}}]}}
+            )
+            return r.status_code == 200
+        except Exception as e:
+            log.warning(f"Qdrant delete_by_filename hiba: {e}")
+            return False
+
+
 async def search_multi(query_text: str, collections: Optional[list[str]] = None,
                        limit_per: int = 2, score_threshold: float = 0.35) -> list[dict]:
     """

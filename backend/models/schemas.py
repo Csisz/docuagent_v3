@@ -8,7 +8,7 @@ Az email státuszok és kategóriák enum-ként vannak definiálva,
 """
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # ── Enumerációk ───────────────────────────────────────────────
@@ -129,3 +129,43 @@ class RagResponse(BaseModel):
     confidence: float = 0.0
     sources:    list[SourceDoc] = []
     latency_ms: int = 0
+
+
+# ── Auth / Tenant sémák ───────────────────────────────────────
+
+class TenantCreate(BaseModel):
+    name: str
+    slug: str
+    plan: str = "free"
+
+class TenantResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    plan: str
+    is_active: bool
+    created_at: str
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    full_name: Optional[str] = None
+    role: str = "agent"
+
+class UserResponse(BaseModel):
+    id: str
+    tenant_id: str
+    email: str
+    full_name: Optional[str]
+    role: str
+    is_active: bool
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+    tenant: TenantResponse

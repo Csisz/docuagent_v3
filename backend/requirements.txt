@@ -14,3 +14,9 @@ openpyxl>=3.1.0
 
 # Embedding-alapú hasonlóság (learning service)
 numpy>=1.26.0
+
+# Auth / JWT
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1
+email-validator>=2.0.0

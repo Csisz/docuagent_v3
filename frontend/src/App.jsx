@@ -1,3 +1,6 @@
+// App.jsx — Frissített verzió, ReportsPage hozzáadva
+// Változtatások: import + új /reports route
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider }   from './context/AuthContext'
 import ProtectedRoute     from './components/ProtectedRoute'
@@ -7,6 +10,8 @@ import EmailsPage    from './pages/EmailsPage'
 import DocsPage      from './pages/DocsPage'
 import InsightsPage  from './pages/InsightsPage'
 import ChatPage      from './pages/ChatPage'
+import ReportsPage   from './pages/ReportsPage'
+import CalendarPage  from './pages/CalendarPage'
 
 export default function App() {
   return (
@@ -20,7 +25,9 @@ export default function App() {
               <Route path="/attention" element={<EmailsPage defaultFilter="NEEDS_ATTENTION" />} />
               <Route path="/docs"      element={<DocsPage />} />
               <Route path="/insights"  element={<InsightsPage />} />
+              <Route path="/reports"   element={<ReportsPage />} />
               <Route path="/chat"      element={<ChatPage />} />
+              <Route path="/calendar"  element={<CalendarPage />} />
               <Route path="*"          element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

@@ -57,13 +57,34 @@ def decode_token(token: str) -> dict:
         )
 
 
+# async def get_current_user(
+#     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)
+# ):
+#     if not credentials:
+#         raise HTTPException(status_code=401, detail="Nincs token")
+#     payload = decode_token(credentials.credentials)
+#     return payload  # tartalmazza: user_id, tenant_id, role, email
+
+from fastapi import Header
+
 async def get_current_user(
+    x_api_key: Optional[str] = Header(None),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)
 ):
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Nincs token")
-    payload = decode_token(credentials.credentials)
-    return payload  # tartalmazza: user_id, tenant_id, role, email
+    if x_api_key:
+        if DASHBOARD_API_KEY and x_api_key != DASHBOARD_API_KEY:
+            raise HTTPException(status_code=401, detail="Érvénytelen API kulcs")
+
+        return {
+            "tenant_id": "system",   # TODO: később DB-ből
+            "auth_type": "api_key"
+        }
+
+    if credentials:
+        payload = decode_token(credentials.credentials)
+        return payload
+
+    raise HTTPException(status_code=401, detail="Nincs token")
 
 
 async def get_current_user_optional(

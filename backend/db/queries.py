@@ -403,3 +403,107 @@ async def update_session_title(session_id: str, title: str):
 
 async def delete_chat_session(session_id: str):
     await db.execute("DELETE FROM chat_sessions WHERE id=$1", session_id)
+
+
+# ══════════════════════════════════════════════════════════════
+# CALENDAR EVENTS
+# ══════════════════════════════════════════════════════════════
+
+async def get_calendar_events(tenant_id: str, from_dt=None, to_dt=None):
+    if from_dt and to_dt:
+        return await db.fetch(
+            """SELECT * FROM calendar_events
+               WHERE tenant_id=$1 AND start_time >= $2 AND start_time <= $3
+               ORDER BY start_time ASC""",
+            tenant_id, from_dt, to_dt
+        )
+    return await db.fetch(
+        "SELECT * FROM calendar_events WHERE tenant_id=$1 ORDER BY start_time ASC",
+        tenant_id
+    )
+
+
+async def insert_calendar_event(tenant_id: str, data: dict):
+    import json as _json
+    return await db.fetchrow(
+        """INSERT INTO calendar_events
+           (tenant_id, title, description, start_time, end_time,
+            attendees, status, source, email_id, google_event_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           RETURNING *""",
+        tenant_id,
+        data["title"],
+        data.get("description"),
+        data["start_time"],
+        data["end_time"],
+        _json.dumps(data.get("attendees", [])),
+        data.get("status", "confirmed"),
+        data.get("source", "manual"),
+        data.get("email_id"),
+        data.get("google_event_id"),
+    )
+
+
+async def get_calendar_event_by_id(event_id: str):
+    return await db.fetchrow(
+        "SELECT * FROM calendar_events WHERE id=$1", event_id
+    )
+
+
+async def delete_calendar_event(event_id: str):
+    await db.execute("DELETE FROM calendar_events WHERE id=$1", event_id)
+
+
+async def upsert_calendar_event(tenant_id: str, event: dict) -> dict:
+    """
+    Google Calendar szinkron: INSERT or UPDATE google_event_id alapján.
+    UNIQUE constraint on google_event_id required for ON CONFLICT to work.
+    Returns row dict with 'inserted' bool key.
+    """
+    import json as _json
+    import logging
+    _log = logging.getLogger("docuagent")
+
+    google_event_id = event.get("google_event_id")
+    if not google_event_id:
+        raise ValueError("upsert_calendar_event requires a non-empty google_event_id")
+
+    row = await db.fetchrow(
+        """INSERT INTO calendar_events
+           (tenant_id, google_event_id, title, description,
+            start_time, end_time, attendees, status, source, last_synced_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'google',NOW())
+           ON CONFLICT ON CONSTRAINT unique_google_event_id DO UPDATE SET
+             title          = EXCLUDED.title,
+             description    = EXCLUDED.description,
+             start_time     = EXCLUDED.start_time,
+             end_time       = EXCLUDED.end_time,
+             attendees      = EXCLUDED.attendees,
+             status         = EXCLUDED.status,
+             last_synced_at = NOW()
+           RETURNING *, (xmax = 0) AS inserted""",
+        tenant_id,
+        google_event_id,
+        event["title"],
+        event.get("description", ""),
+        event["start_time"],
+        event["end_time"],
+        _json.dumps(event.get("attendees", [])),
+        event.get("status", "confirmed"),
+    )
+
+    action = "inserted" if row and row["inserted"] else "updated"
+    _log.info(f"Calendar upsert {action}: google_event_id={google_event_id} title={event['title']!r}")
+    return row
+
+
+async def link_google_event(event_id: str, google_event_id: str) -> dict:
+    """n8n visszahívás után: google_event_id és last_synced_at beállítása."""
+    return await db.fetchrow(
+        """UPDATE calendar_events
+           SET google_event_id = $2,
+               last_synced_at  = NOW()
+           WHERE id = $1
+           RETURNING *""",
+        event_id, google_event_id,
+    )

@@ -21,9 +21,10 @@ class EmailStatus(str, Enum):
 
 
 class EmailCategory(str, Enum):
-    COMPLAINT  = "complaint"
-    INQUIRY    = "inquiry"
-    OTHER      = "other"
+    COMPLAINT   = "complaint"
+    INQUIRY     = "inquiry"
+    APPOINTMENT = "appointment"
+    OTHER       = "other"
 
 
 # ── AI döntés (tipizált JSONB) ────────────────────────────────
@@ -94,8 +95,9 @@ class ClassifyResponse(BaseModel):
     reason:           str
     status:           EmailStatus
     learned_override: bool = False
-    urgency_score:    int  = 0     # 0–100, AI által becsült sürgősség
+    urgency_score:    int  = 0       # 0–100, AI által becsült sürgősség
     sentiment:        str  = "neutral"  # positive | neutral | negative | angry
+    booking_intent:   bool = False   # időpont-foglalási szándék jelzője
 
 
 # ── RAG request bővítés (v3.3) ────────────────────────────────

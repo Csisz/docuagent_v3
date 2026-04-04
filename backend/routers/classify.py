@@ -45,12 +45,13 @@ _LANG_INSTRUCTION = {
 _CLASSIFY_SYSTEM = """You are an expert email classifier for a customer service team.
 
 Classify the incoming email and respond ONLY with valid JSON:
-{{"can_answer": true/false, "confidence": 0.0-1.0, "category": "complaint|inquiry|other", "reason": "1 sentence", "urgency_score": 0-100, "sentiment": "positive|neutral|negative|angry"}}
+{{"can_answer": true/false, "confidence": 0.0-1.0, "category": "complaint|inquiry|appointment|other", "reason": "1 sentence", "urgency_score": 0-100, "sentiment": "positive|neutral|negative|angry", "booking_intent": true/false}}
 
 Category rules:
-- "complaint": customer expresses dissatisfaction, reports a problem, requests refund/compensation
-- "inquiry":   customer asks a question, requests information, needs help or guidance
-- "other":     newsletter, spam, internal, out-of-scope
+- "complaint":    customer expresses dissatisfaction, reports a problem, requests refund/compensation
+- "inquiry":      customer asks a question, requests information, needs help or guidance
+- "appointment":  customer requests a meeting, demo, consultation, or callback
+- "other":        newsletter, spam, internal, out-of-scope
 
 Urgency score rules (0-100):
 - 0-20:  routine, no deadline, low stakes
@@ -129,10 +130,14 @@ async def classify_email(req: ClassifyRequest):
         conf   = round(float(p.get("confidence", 0.0)), 2)
         cat    = EmailCategory(p.get("category", "other"))
         reason = p.get("reason", "")
+        booking_intent = bool(p.get("booking_intent", False)) or cat == EmailCategory.APPOINTMENT
         urgency_score = max(0, min(100, int(p.get("urgency_score", 0))))
         sentiment     = p.get("sentiment", "neutral")
         if sentiment not in ("positive", "neutral", "negative", "angry"):
             sentiment = "neutral"
+        # Appointment → always needs human handling
+        if cat == EmailCategory.APPOINTMENT:
+            can = False
         status = EmailStatus.AI_ANSWERED if (can and conf >= CONF_THRESHOLD) else EmailStatus.NEEDS_ATTENTION
 
         decision = AiDecision(can_answer=can, confidence=conf, reason=reason,
@@ -143,10 +148,11 @@ async def classify_email(req: ClassifyRequest):
                 urgency_score=urgency_score, sentiment=sentiment
             )
 
-        log.info(f"Classify GPT: '{req.subject[:40]}' → {status.value} conf={conf} urgency={urgency_score} sentiment={sentiment}")
+        log.info(f"Classify GPT: '{req.subject[:40]}' → {status.value} conf={conf} urgency={urgency_score} sentiment={sentiment} booking={booking_intent}")
         return ClassifyResponse(can_answer=can, confidence=conf, category=cat,
                                 reason=reason, status=status,
-                                urgency_score=urgency_score, sentiment=sentiment)
+                                urgency_score=urgency_score, sentiment=sentiment,
+                                booking_intent=booking_intent)
 
     except Exception as e:
         log.error(f"Classify error: {e}")

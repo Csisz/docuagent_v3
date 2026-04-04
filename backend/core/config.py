@@ -17,8 +17,10 @@ CONF_THRESHOLD  = float(os.getenv("CONFIDENCE_THRESHOLD", "0.70"))
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 
 # ── n8n ───────────────────────────────────────────────────────
-N8N_BASE_URL      = os.getenv("N8N_BASE_URL", "http://localhost:5678")
-N8N_LABEL_WEBHOOK = os.getenv("N8N_LABEL_WEBHOOK", "")
+N8N_BASE_URL             = os.getenv("N8N_BASE_URL", "http://localhost:5678")
+N8N_LABEL_WEBHOOK        = os.getenv("N8N_LABEL_WEBHOOK", "")
+N8N_CALENDAR_WEBHOOK      = os.getenv("N8N_CALENDAR_WEBHOOK",      "http://n8n:5678/webhook/calendar-create")
+N8N_CALENDAR_SYNC_WEBHOOK = os.getenv("N8N_CALENDAR_SYNC_WEBHOOK", "")
 
 # ── App ───────────────────────────────────────────────────────
 COMPANY_NAME = os.getenv("COMPANY_NAME", "Agentify Kft.")

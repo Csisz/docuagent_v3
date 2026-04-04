@@ -29,6 +29,8 @@ const NAV = [
     section: 'Analitika',
     items: [
       { to: '/insights',  label: 'AI Insights',      icon: ChartIcon },
+      { to: '/reports',   label: 'Riportok',         icon: ReportsIcon },
+      { to: '/calendar',  label: 'Naptár',           icon: CalendarIcon },
     ]
   },
   {
@@ -79,9 +81,7 @@ export default function Sidebar() {
           ? 'bg-slate-800 border-r border-slate-700'
           : 'bg-[#050d18]',
         'transition-transform duration-300 ease-in-out',
-        // Mobile: slide in/out
         mobileNavOpen ? 'translate-x-0' : '-translate-x-full',
-        // Desktop: always visible
         'lg:static lg:translate-x-0 lg:z-auto'
       )}>
 
@@ -97,7 +97,6 @@ export default function Sidebar() {
             <div className="text-[14px] font-bold text-white">DocuAgent</div>
             <div className="text-[9px] text-white/50 font-mono mt-0.5">v3.1 · Enterprise</div>
           </div>
-          {/* Mobile close */}
           <button
             className="ml-auto lg:hidden text-white/40 hover:text-white text-xl"
             onClick={closeMobileNav}
@@ -201,6 +200,7 @@ export default function Sidebar() {
         </div>
 
       </aside>
+
       {/* API Key Modal */}
       {showApiModal && (
         <div
@@ -271,6 +271,12 @@ function DocIcon({ className }) {
 function ChartIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M2 10l3-4 2.5 2.5 2.5-4.5 2 2"/><path d="M1 13h12"/></svg>
 }
+function ReportsIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="1" width="12" height="12" rx="1.5"/><path d="M4 9V7M7 9V5M10 9V3"/></svg>
+}
 function ChatIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M1.5 2h11a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H4l-2.5 2V2.5A.5.5 0 0 1 1.5 2z"/></svg>
+}
+function CalendarIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M5 1v3M9 1v3"/></svg>
 }

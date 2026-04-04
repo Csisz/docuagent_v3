@@ -68,6 +68,17 @@ export const api = {
   upload: (formData) =>
     fetch(`${BASE}/api/upload`, { method: 'POST', body: formData, signal: AbortSignal.timeout(60000) })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+
+  calendarEvents: (from, to) => {
+    const q = new URLSearchParams()
+    if (from) q.set('from_date', from)
+    if (to)   q.set('to_date', to)
+    return req(`/api/calendar/events?${q}`)
+  },
+  createCalendarEvent: (data) =>
+    req('/api/calendar/events', { method: 'POST', body: JSON.stringify(data) }),
+  deleteCalendarEvent: (id) =>
+    req(`/api/calendar/events/${id}`, { method: 'DELETE' }),
 }
 
 const API_KEY_STORAGE = 'docuagent_api_key'

@@ -3,10 +3,12 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser]       = useState(null);
-  const [tenant, setTenant]   = useState(null);
-  const [token, setToken]     = useState(() => localStorage.getItem('docuagent_token'));
-  const [loading, setLoading] = useState(true);
+  const [user,            setUser]            = useState(null);
+  const [tenant,          setTenant]          = useState(null);
+  const [token,           setToken]           = useState(() => localStorage.getItem('docuagent_token'));
+  const [loading,         setLoading]         = useState(true);
+  const [onboardingDone,  setOnboardingDone]  = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
 
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -27,6 +29,7 @@ export function AuthProvider({ children }) {
         const data = await res.json();
         setUser(data.user);
         setTenant(data.tenant);
+        await checkOnboarding(token);
       } else {
         logout();
       }
@@ -34,6 +37,23 @@ export function AuthProvider({ children }) {
       logout();
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function checkOnboarding(tok) {
+    try {
+      const res = await fetch(`${apiUrl}/api/onboarding/state`, {
+        headers: { Authorization: `Bearer ${tok}` }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setOnboardingDone(json.onboarding?.is_complete === true);
+      }
+    } catch {
+      // backend offline: treat as done so app still loads
+      setOnboardingDone(true);
+    } finally {
+      setOnboardingChecked(true);
     }
   }
 
@@ -52,14 +72,17 @@ export function AuthProvider({ children }) {
     setToken(data.access_token);
     setUser(data.user);
     setTenant(data.tenant);
+    await checkOnboarding(data.access_token);
     return data;
-  }, [apiUrl]);
+  }, [apiUrl]); // eslint-disable-line
 
   const logout = useCallback(() => {
     localStorage.removeItem('docuagent_token');
     setToken(null);
     setUser(null);
     setTenant(null);
+    setOnboardingDone(false);
+    setOnboardingChecked(false);
   }, []);
 
   const authFetch = useCallback(async (url, options = {}) => {
@@ -71,12 +94,19 @@ export function AuthProvider({ children }) {
     return fetch(url, { ...options, headers });
   }, [token]);
 
+  // Called by OnboardingPage after /complete
+  const setOnboardingComplete = useCallback((val = true) => {
+    setOnboardingDone(val);
+  }, []);
+
   return (
     <AuthContext.Provider value={{
       user, tenant, token, loading,
       login, logout, authFetch,
+      onboardingDone, onboardingChecked, setOnboardingComplete,
       isAdmin: user?.role === 'admin',
       isAgent: user?.role === 'agent' || user?.role === 'admin',
+      isDemo:  tenant?.slug === 'demo',
     }}>
       {children}
     </AuthContext.Provider>

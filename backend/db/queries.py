@@ -103,6 +103,50 @@ async def delete_email_by_id(email_id: str):
     return await db.execute("DELETE FROM emails WHERE id=$1", email_id)
 
 
+async def get_approval_queue(tenant_id: Optional[str] = None, limit: int = 50):
+    """NEEDS_ATTENTION emailek confidence + legutóbbi RAG forrásokkal."""
+    base = """
+        SELECT
+            e.id, e.subject, e.sender, e.body,
+            e.category, e.status,
+            e.urgent, e.urgency_score,
+            COALESCE(e.confidence, 0)  AS confidence,
+            e.ai_response, e.ai_decision,
+            COALESCE(e.sentiment, 'neutral') AS sentiment,
+            e.created_at,
+            rl.source_docs, rl.confidence AS rag_confidence
+        FROM emails e
+        LEFT JOIN LATERAL (
+            SELECT source_docs, confidence
+            FROM rag_logs
+            WHERE email_id = e.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) rl ON true
+        WHERE e.status = 'NEEDS_ATTENTION'
+    """
+    if tenant_id:
+        return await db.fetch(
+            base + " AND e.tenant_id=$1 ORDER BY e.urgent DESC, e.urgency_score DESC, e.created_at ASC LIMIT $2",
+            tenant_id, limit
+        )
+    return await db.fetch(
+        base + " ORDER BY e.urgent DESC, e.urgency_score DESC, e.created_at ASC LIMIT $1",
+        limit
+    )
+
+
+async def get_approval_queue_count(tenant_id: Optional[str] = None) -> int:
+    if tenant_id:
+        row = await db.fetchrow(
+            "SELECT COUNT(*) FROM emails WHERE status='NEEDS_ATTENTION' AND tenant_id=$1",
+            tenant_id
+        )
+    else:
+        row = await db.fetchrow("SELECT COUNT(*) FROM emails WHERE status='NEEDS_ATTENTION'")
+    return int(row["count"]) if row else 0
+
+
 # ══════════════════════════════════════════════════════════════
 # FEEDBACK
 # ══════════════════════════════════════════════════════════════
@@ -506,4 +550,39 @@ async def link_google_event(event_id: str, google_event_id: str) -> dict:
            WHERE id = $1
            RETURNING *""",
         event_id, google_event_id,
+    )
+
+
+# ══════════════════════════════════════════════════════════════
+# ONBOARDING
+# ══════════════════════════════════════════════════════════════
+
+async def get_onboarding_state(tenant_id: str):
+    return await db.fetchrow(
+        "SELECT * FROM onboarding_state WHERE tenant_id=$1", tenant_id
+    )
+
+
+async def upsert_onboarding_state(tenant_id: str, current_step: int,
+                                   completed_steps: list, metadata: dict) -> dict:
+    import json as _json
+    return await db.fetchrow(
+        """INSERT INTO onboarding_state (tenant_id, current_step, completed_steps, metadata)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (tenant_id) DO UPDATE SET
+             current_step    = EXCLUDED.current_step,
+             completed_steps = EXCLUDED.completed_steps,
+             metadata        = EXCLUDED.metadata
+           RETURNING *""",
+        tenant_id, current_step, completed_steps, _json.dumps(metadata)
+    )
+
+
+async def complete_onboarding(tenant_id: str) -> dict:
+    return await db.fetchrow(
+        """UPDATE onboarding_state
+           SET completed_at = NOW()
+           WHERE tenant_id = $1
+           RETURNING *""",
+        tenant_id
     )

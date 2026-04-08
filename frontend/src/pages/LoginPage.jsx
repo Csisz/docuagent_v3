@@ -3,10 +3,11 @@ import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const [email, setEmail]       = useState('');
+  const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -21,95 +22,175 @@ export default function LoginPage() {
     }
   }
 
+  async function handleDemo() {
+    setError('');
+    setDemoLoading(true);
+    try {
+      await login('demo@agentify.hu', 'demo1234');
+    } catch (err) {
+      setError('A demo fiók nem elérhető. Futtasd a seed_demo.py scriptet.');
+    } finally {
+      setDemoLoading(false);
+    }
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'var(--color-bg, #f5f5f5)'
+      background: '#050d18',
+      fontFamily: 'Inter, system-ui, sans-serif',
     }}>
       <div style={{
-        background: 'white',
-        borderRadius: '12px',
-        padding: '2.5rem',
         width: '100%',
         maxWidth: '400px',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
-        color: '#1a1a1a'
+        padding: '0 1rem',
       }}>
-        <div style={{ marginBottom: '2rem', textAlign: 'center' }}>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.5rem', color: '#1a1a1a' }}>
+        {/* Logo */}
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 44, height: 44, borderRadius: 10,
+            background: '#1a56db', marginBottom: '0.75rem',
+          }}>
+            <svg viewBox="0 0 16 16" fill="none" style={{ width: 20, height: 20 }}>
+              <path d="M3 8h5M9 4l4 4-4 4" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="4.5" cy="8" r="1.5" fill="white"/>
+            </svg>
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', marginBottom: '0.25rem' }}>
             DocuAgent
-          </h1>
-          <p style={{ color: '#666', fontSize: '0.875rem' }}>
-            Jelentkezz be a folytatáshoz
-          </p>
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b', fontFamily: 'monospace' }}>
+            v3 · Enterprise
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.375rem', color: '#1a1a1a' }}>
-              Felhasználónév (email cím)
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="pl. nev@ceg.hu"
-              required
-              style={{
-                width: '100%', padding: '0.625rem 0.75rem',
-                border: '1px solid #e0e0e0', borderRadius: '8px',
-                fontSize: '0.875rem', boxSizing: 'border-box',
-                color: '#000000', backgroundColor: '#ffffff', outline: 'none'
-              }}
-            />
-          </div>
+        {/* Card */}
+        <div style={{
+          background: '#0d1b2e',
+          borderRadius: 14,
+          padding: '2rem',
+          border: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+        }}>
+          <h2 style={{ fontSize: 17, fontWeight: 600, color: '#e2e8f0', marginBottom: '0.25rem' }}>
+            Bejelentkezés
+          </h2>
+          <p style={{ color: '#64748b', fontSize: 13, marginBottom: '1.5rem' }}>
+            Add meg a hozzáférési adataidat
+          </p>
 
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.375rem', color: '#1a1a1a' }}>
-              Jelszó
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              style={{
-                width: '100%', padding: '0.625rem 0.75rem',
-                border: '1px solid #e0e0e0', borderRadius: '8px',
-                fontSize: '0.875rem', boxSizing: 'border-box',
-                color: '#000000', backgroundColor: '#ffffff', outline: 'none'
-              }}
-            />
-          </div>
-
-          {error && (
-            <div style={{
-              background: '#fef2f2', border: '1px solid #fecaca',
-              borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem',
-              color: '#dc2626', fontSize: '0.875rem'
-            }}>
-              {error}
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{
+                display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b',
+                marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em',
+              }}>
+                Email cím
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="nev@ceg.hu"
+                required
+                style={{
+                  width: '100%', padding: '0.625rem 0.75rem',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 8, fontSize: 13,
+                  color: '#e2e8f0', outline: 'none', boxSizing: 'border-box',
+                }}
+              />
             </div>
-          )}
 
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{
+                display: 'block', fontSize: 11, fontWeight: 600, color: '#64748b',
+                marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em',
+              }}>
+                Jelszó
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                style={{
+                  width: '100%', padding: '0.625rem 0.75rem',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 8, fontSize: 13,
+                  color: '#e2e8f0', outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            {error && (
+              <div style={{
+                background: 'rgba(248,113,113,0.08)',
+                border: '1px solid rgba(248,113,113,0.25)',
+                borderRadius: 8, padding: '0.625rem 0.875rem',
+                marginBottom: '1rem', color: '#f87171', fontSize: 13,
+              }}>
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || demoLoading}
+              style={{
+                width: '100%', padding: '0.688rem',
+                background: loading ? 'rgba(26,86,219,0.5)' : '#1a56db',
+                color: 'white', border: 'none', borderRadius: 8,
+                fontSize: 13, fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                marginBottom: '0.75rem',
+              }}
+            >
+              {loading ? 'Bejelentkezés...' : 'Bejelentkezés'}
+            </button>
+          </form>
+
+          {/* Elválasztó */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            marginBottom: '0.75rem',
+          }}>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
+            <span style={{ fontSize: 11, color: '#64748b' }}>vagy</span>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
+          </div>
+
+          {/* Demo gomb */}
           <button
-            type="submit"
-            disabled={loading}
+            type="button"
+            onClick={handleDemo}
+            disabled={loading || demoLoading}
             style={{
-              width: '100%', padding: '0.75rem',
-              background: loading ? '#94a3b8' : '#2563eb',
-              color: 'white', border: 'none', borderRadius: '8px',
-              fontSize: '0.875rem', fontWeight: 500,
-              cursor: loading ? 'not-allowed' : 'pointer'
+              width: '100%', padding: '0.625rem',
+              background: demoLoading ? 'rgba(255,120,32,0.15)' : 'rgba(255,120,32,0.1)',
+              color: demoLoading ? 'rgba(255,120,32,0.6)' : '#ff7820',
+              border: '1px solid rgba(255,120,32,0.3)',
+              borderRadius: 8, fontSize: 13, fontWeight: 600,
+              cursor: demoLoading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s',
             }}
+            onMouseEnter={e => { if (!demoLoading) e.currentTarget.style.background = 'rgba(255,120,32,0.18)' }}
+            onMouseLeave={e => { if (!demoLoading) e.currentTarget.style.background = 'rgba(255,120,32,0.1)' }}
           >
-            {loading ? 'Bejelentkezés...' : 'Bejelentkezés'}
+            {demoLoading ? '⏳ Belépés...' : '▶ Demo megtekintése'}
           </button>
-        </form>
+
+          <div style={{ fontSize: 11, color: '#334155', textAlign: 'center', marginTop: '0.625rem' }}>
+            demo@agentify.hu · az adatok 24 óránként visszaállnak
+          </div>
+        </div>
       </div>
     </div>
   );

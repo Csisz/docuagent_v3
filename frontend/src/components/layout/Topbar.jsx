@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../../store'
+import { useAuth } from '../../context/AuthContext'
 import { LiveDot } from '../ui'
 
 const TITLES = {
@@ -11,11 +13,32 @@ const TITLES = {
   '/insights':  { cat: 'DocuAgent', title: 'AI Insights' },
 }
 
-export default function Topbar({ onUpload }) {
+export default function Topbar({ onUpload, isDemo }) {
   const { pathname } = useLocation()
   const { liveStatus, liveTime, toggleMobileNav, theme } = useStore()
+  const { authFetch } = useAuth()
   const { cat, title } = TITLES[pathname] || { cat: 'DocuAgent', title: pathname }
   const { dotClass, chipClass } = LiveDot({ status: liveStatus })
+  const [resetting, setResetting] = useState(false)
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+  async function handleDemoReset() {
+    if (resetting) return
+    setResetting(true)
+    try {
+      const res = await authFetch(`${apiUrl}/api/demo/reset`, { method: 'POST' })
+      if (res.ok) {
+        const json = await res.json()
+        window.dispatchEvent(new CustomEvent('docuagent:demo-reset', { detail: json.stats }))
+        // Reload the page to reflect fresh data
+        setTimeout(() => window.location.reload(), 300)
+      }
+    } catch (e) {
+      console.error('Demo reset failed:', e)
+    } finally {
+      setResetting(false)
+    }
+  }
 
   const statusText = {
     ok:      'Live',
@@ -63,10 +86,30 @@ export default function Topbar({ onUpload }) {
           {liveTime && <span className="opacity-50 ml-0.5">{liveTime}</span>}
         </div>
 
+        {/* Demo reset gomb */}
+        {isDemo && (
+          <button
+            onClick={handleDemoReset}
+            disabled={resetting}
+            className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-all duration-150"
+            style={{
+              background: resetting ? 'rgba(161,108,0,0.15)' : 'rgba(255,120,32,0.12)',
+              color: resetting ? 'rgba(255,120,32,0.5)' : '#ff7820',
+              border: '1px solid rgba(255,120,32,0.25)',
+              cursor: resetting ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <span>{resetting ? '⏳' : '🔄'}</span>
+            <span>{resetting ? 'Reset...' : 'Demo reset'}</span>
+          </button>
+        )}
+
         {/* Export */}
-        <button className="btn-ghost text-xs px-3 py-1.5 hidden sm:block">
-          ↓ Export
-        </button>
+        {!isDemo && (
+          <button className="btn-ghost text-xs px-3 py-1.5 hidden sm:block">
+            ↓ Export
+          </button>
+        )}
 
         {/* Upload */}
         <button

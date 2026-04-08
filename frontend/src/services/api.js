@@ -34,6 +34,18 @@ export const api = {
   deleteEmail: (id) =>
     req(`/api/emails/${id}`, { method: 'DELETE' }),
 
+  approvalQueue: (limit = 50) =>
+    req(`/api/emails/approval-queue?limit=${limit}`),
+
+  approveEmail: (id) =>
+    req(`/api/emails/${id}/approve`, { method: 'POST' }),
+
+  rejectEmail: (id, note = '') =>
+    req(`/api/emails/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
+
+  editAndApprove: (id, reply, note = '') =>
+    req(`/api/emails/${id}/edit-and-approve`, { method: 'PATCH', body: JSON.stringify({ reply, note }) }),
+
   deleteDocument: (id) =>
     req(`/api/documents/${id}`, { method: 'DELETE' }),
 
@@ -68,6 +80,10 @@ export const api = {
   upload: (formData) =>
     fetch(`${BASE}/api/upload`, { method: 'POST', body: formData, signal: AbortSignal.timeout(60000) })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() }),
+
+  templates:      ()         => req('/api/templates'),
+  applyTemplate:  (id)       => req(`/api/templates/${id}/apply`, { method: 'POST' }),
+  demoReset:      ()         => req('/api/demo/reset', { method: 'POST' }),
 
   calendarEvents: (from, to) => {
     const q = new URLSearchParams()

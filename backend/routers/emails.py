@@ -7,6 +7,7 @@ import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Security
 from typing import Optional
+from pydantic import BaseModel
 
 import db.queries as q
 from models.schemas import StatusUpdateRequest, FeedbackRequest, EmailStatus
@@ -199,6 +200,188 @@ async def ingest_email(request: Request):
     }
 
 
+# ── Approval Inbox endpointok ─────────────────────────────────
+
+def _serialize_approval(row) -> dict:
+    import json as _json
+    d = {
+        "id":            str(row["id"]),
+        "subject":       row["subject"] or "",
+        "sender":        row["sender"] or "",
+        "body":          row["body"] or "",
+        "category":      row["category"] or "other",
+        "status":        row["status"],
+        "urgent":        row["urgent"],
+        "urgency_score": int(row["urgency_score"] or 0),
+        "confidence":    round(float(row["confidence"] or 0), 2),
+        "ai_response":   row["ai_response"],
+        "ai_decision":   row["ai_decision"],
+        "sentiment":     row["sentiment"] or "neutral",
+        "created_at":    row["created_at"].isoformat() if row["created_at"] else "",
+        "rag_sources":   [],
+        "rag_confidence": None,
+    }
+    # RAG forrás docs
+    src = row.get("source_docs")
+    if src:
+        try:
+            parsed = _json.loads(src) if isinstance(src, str) else src
+            d["rag_sources"] = parsed if isinstance(parsed, list) else []
+        except Exception:
+            pass
+    if row.get("rag_confidence") is not None:
+        d["rag_confidence"] = round(float(row["rag_confidence"]), 2)
+    return d
+
+
+@router.get("/emails/approval-queue")
+async def approval_queue(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """NEEDS_ATTENTION emailek confidence + RAG forrásokkal. Sürgőség szerint rendezve."""
+    tenant_id = current_user.get("tenant_id")
+    rows = await q.get_approval_queue(tenant_id, limit)
+    count = await q.get_approval_queue_count(tenant_id)
+    return {
+        "emails": [_serialize_approval(r) for r in (rows or [])],
+        "total":  count,
+    }
+
+
+class RejectRequest(BaseModel):
+    note: Optional[str] = ""
+
+
+class EditApproveRequest(BaseModel):
+    reply: str
+    note:  Optional[str] = ""
+
+
+@router.post("/emails/{email_id}/approve")
+async def approve_email(
+    email_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Jóváhagyja az AI által javasolt választ és elküldi.
+    Az ai_response meglévő szövegét küldi ki.
+    """
+    row = await q.get_email_by_id(email_id)
+    if not row:
+        raise HTTPException(404, "Email nem található")
+    if row["status"] not in ("NEEDS_ATTENTION", "NEW"):
+        raise HTTPException(400, f"Email nem jóváhagyható ebben az állapotban: {row['status']}")
+
+    reply_text = (row["ai_response"] or "").strip()
+    if not reply_text:
+        raise HTTPException(400, "Nincs AI válasz javaslat — előbb szerkeszd meg")
+
+    await q.update_email_reply(email_id, reply_text)
+    await q.insert_feedback(
+        email_id, row["status"], "AI_ANSWERED",
+        f"Jóváhagyva: {current_user.get('email', 'unknown')}"
+    )
+
+    n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
+    sent_via = "dashboard_only"
+    is_demo  = current_user.get("tenant_slug") == "demo"
+
+    if is_demo:
+        sent_via = "mock_demo"
+        log.info(f"Demo mode: skipping n8n send for email {email_id}")
+    elif n8n_send_webhook and row.get("message_id"):
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                resp = await c.post(n8n_send_webhook, json={
+                    "email_id":         email_id,
+                    "gmail_message_id": row["message_id"],
+                    "reply_text":       reply_text,
+                    "approved_by":      current_user.get("email"),
+                    "sender":           row["sender"],
+                    "subject":          row["subject"],
+                })
+                if resp.status_code < 300:
+                    sent_via = "gmail_via_n8n"
+                else:
+                    log.warning(f"approve: n8n send webhook failed: {resp.status_code}")
+        except Exception as e:
+            log.warning(f"approve: n8n send webhook error: {e}")
+
+    log.info(f"Approved email {email_id} via={sent_via} by={current_user.get('email')}")
+    return {"status": "ok", "email_id": email_id, "sent_via": sent_via}
+
+
+@router.post("/emails/{email_id}/reject")
+async def reject_email(
+    email_id: str,
+    req: RejectRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Elutasítja az emailt — CLOSED státuszra állítja, feedback-et ment."""
+    row = await q.get_email_by_id(email_id)
+    if not row:
+        raise HTTPException(404, "Email nem található")
+
+    note = (req.note or "").strip() or f"Elutasítva: {current_user.get('email', 'unknown')}"
+    await q.update_email_status(email_id, "CLOSED")
+    await q.insert_feedback(email_id, row["status"], "CLOSED", note)
+
+    log.info(f"Rejected email {email_id} by={current_user.get('email')} note={note[:60]!r}")
+    return {"status": "ok", "email_id": email_id, "new_status": "CLOSED"}
+
+
+@router.patch("/emails/{email_id}/edit-and-approve")
+async def edit_and_approve(
+    email_id: str,
+    req: EditApproveRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Szerkesztett választ küld — felülírja az AI javaslatot, majd elküldi."""
+    reply_text = req.reply.strip()
+    if not reply_text:
+        raise HTTPException(400, "A szerkesztett válasz nem lehet üres")
+
+    row = await q.get_email_by_id(email_id)
+    if not row:
+        raise HTTPException(404, "Email nem található")
+
+    await q.update_email_reply(email_id, reply_text)
+    await q.insert_feedback(
+        email_id, row["status"], "AI_ANSWERED",
+        f"Szerkesztve és jóváhagyva: {current_user.get('email', 'unknown')}"
+        + (f" — {req.note}" if req.note else "")
+    )
+
+    n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
+    sent_via = "dashboard_only"
+    is_demo  = current_user.get("tenant_slug") == "demo"
+
+    if is_demo:
+        sent_via = "mock_demo"
+        log.info(f"Demo mode: skipping n8n edit-approve send for email {email_id}")
+    elif n8n_send_webhook and row.get("message_id"):
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                resp = await c.post(n8n_send_webhook, json={
+                    "email_id":         email_id,
+                    "gmail_message_id": row["message_id"],
+                    "reply_text":       reply_text,
+                    "approved_by":      current_user.get("email"),
+                    "sender":           row["sender"],
+                    "subject":          row["subject"],
+                })
+                if resp.status_code < 300:
+                    sent_via = "gmail_via_n8n"
+                else:
+                    log.warning(f"edit-approve: n8n failed: {resp.status_code}")
+        except Exception as e:
+            log.warning(f"edit-approve: n8n error: {e}")
+
+    log.info(f"Edit-approved email {email_id} via={sent_via} by={current_user.get('email')}")
+    return {"status": "ok", "email_id": email_id, "sent_via": sent_via}
+
+
 @router.post("/emails/{email_id}/send-reply")
 async def send_reply(
     email_id: str,
@@ -230,8 +413,12 @@ async def send_reply(
 
     n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
     sent_via = "dashboard_only"
+    is_demo  = current_user.get("tenant_slug") == "demo"
 
-    if n8n_send_webhook and row.get("message_id"):
+    if is_demo:
+        sent_via = "mock_demo"
+        log.info(f"Demo mode: skipping n8n send-reply for email {email_id}")
+    elif n8n_send_webhook and row.get("message_id"):
         try:
             async with httpx.AsyncClient(timeout=10) as c:
                 resp = await c.post(n8n_send_webhook, json={

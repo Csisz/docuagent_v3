@@ -12,7 +12,7 @@ export default function Layout() {
   const toast    = useToast()
   const { reload } = useDashboard()
   const { theme } = useStore()
-  const { authFetch } = useAuth()
+  const { authFetch, isDemo } = useAuth()
   const [uploadQueue, setUploadQueue] = useState([])
   useHealth()
 
@@ -88,7 +88,21 @@ export default function Layout() {
     <div className="flex min-h-screen bg-cinematic bg-dots">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 relative z-10">
-        <Topbar onUpload={() => fileRef.current?.click()} />
+        {/* Demo banner */}
+        {isDemo && (
+          <div style={{
+            background: 'linear-gradient(90deg, rgba(161,108,0,0.95), rgba(180,120,0,0.95))',
+            borderBottom: '1px solid rgba(255,180,0,0.3)',
+            padding: '0.4rem 1.25rem',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+            fontSize: 12, fontWeight: 600, color: '#fef3c7',
+            letterSpacing: '0.01em', flexShrink: 0,
+          }}>
+            <span>🧪</span>
+            <span>Demo mód — az adatok 24 óránként visszaállnak. Valódi email küldés letiltva.</span>
+          </div>
+        )}
+        <Topbar onUpload={() => fileRef.current?.click()} isDemo={isDemo} />
         <input
           ref={fileRef} id="fileIn" type="file" className="hidden" multiple
           accept=".pdf,.docx,.xlsx,.txt,.csv,.md"

@@ -1,6 +1,3 @@
-// App.jsx — Frissített verzió, ReportsPage hozzáadva
-// Változtatások: import + új /reports route
-
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider }   from './context/AuthContext'
 import ProtectedRoute     from './components/ProtectedRoute'
@@ -12,6 +9,9 @@ import InsightsPage  from './pages/InsightsPage'
 import ChatPage      from './pages/ChatPage'
 import ReportsPage   from './pages/ReportsPage'
 import CalendarPage  from './pages/CalendarPage'
+import OnboardingPage  from './pages/OnboardingPage'
+import ApprovalPage   from './pages/ApprovalPage'
+import TemplatePage   from './pages/TemplatePage'
 
 export default function App() {
   return (
@@ -19,6 +19,10 @@ export default function App() {
       <BrowserRouter>
         <ProtectedRoute>
           <Routes>
+            {/* Onboarding — nincs sidebar, teljes képernyő */}
+            <Route path="/onboarding" element={<OnboardingPage />} />
+
+            {/* Főalkalmazás — Layout-tal (sidebar + topbar) */}
             <Route element={<Layout />}>
               <Route path="/"          element={<DashboardPage />} />
               <Route path="/emails"    element={<EmailsPage />} />
@@ -28,6 +32,8 @@ export default function App() {
               <Route path="/reports"   element={<ReportsPage />} />
               <Route path="/chat"      element={<ChatPage />} />
               <Route path="/calendar"  element={<CalendarPage />} />
+              <Route path="/approval"  element={<ApprovalPage />} />
+              <Route path="/templates" element={<TemplatePage />} />
               <Route path="*"          element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

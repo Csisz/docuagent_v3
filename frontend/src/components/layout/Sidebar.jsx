@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../../store'
 import { getApiKey, setApiKey } from '../../services/api'
@@ -15,8 +15,9 @@ const NAV = [
   {
     section: 'Emailek',
     items: [
-      { to: '/emails',    label: 'Összes email',     icon: MailIcon,    badge: 'nb-total' },
-      { to: '/attention', label: 'Figyelmet igényel', icon: AlertIcon,  badge: 'nb-att' },
+      { to: '/emails',    label: 'Összes email',     icon: MailIcon,       badge: 'nb-total' },
+      { to: '/attention', label: 'Figyelmet igényel', icon: AlertIcon,     badge: 'nb-att' },
+      { to: '/approval',  label: 'Jóváhagyásra vár', icon: ApprovalIcon,  badge: 'nb-att' },
     ]
   },
   {
@@ -37,13 +38,14 @@ const NAV = [
     section: 'Tudásbázis',
     items: [
       { to: '/chat',      label: 'Chat',              icon: ChatIcon },
+      { to: '/templates', label: 'Sablonok',          icon: TemplateIcon },
     ]
   },
 ]
 
 export default function Sidebar() {
   const { mobileNavOpen, closeMobileNav, theme, toggleTheme, dashData } = useStore()
-  const { user, tenant, logout } = useAuth()
+  const { user, tenant, logout, onboardingDone } = useAuth()
   const [showApiModal, setShowApiModal] = useState(false)
   const [apiKeyInput, setApiKeyInput]   = useState('')
   const apiKeySet = !!getApiKey()
@@ -105,7 +107,11 @@ export default function Sidebar() {
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-2 py-2">
-          {NAV.map(({ section, items }) => (
+          {!onboardingDone ? (
+            <div className="px-3 py-4 text-[12px] text-white/30 leading-relaxed">
+              Fejezd be a beállítási varázslót a navigáció eléréséhez.
+            </div>
+          ) : NAV.map(({ section, items }) => (
             <div key={section}>
               <div className="text-[8.5px] text-white/50 uppercase tracking-[.18em] px-3 py-3 pb-1">
                 {section}
@@ -279,4 +285,10 @@ function ChatIcon({ className }) {
 }
 function CalendarIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="2" width="12" height="11" rx="1.5"/><path d="M1 6h12M5 1v3M9 1v3"/></svg>
+}
+function ApprovalIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M1 7h8M6 4l3 3-3 3"/><circle cx="11.5" cy="7" r="1.5" fill="currentColor" stroke="none"/></svg>
+}
+function TemplateIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="1" width="12" height="4" rx="1"/><rect x="1" y="7" width="5" height="6" rx="1"/><rect x="8" y="7" width="5" height="3" rx="1"/></svg>
 }

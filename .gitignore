@@ -28,3 +28,10 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude memory
+.claude/
+
+# Root-level draft files (real versions are in backend/routers/ and backend/core/)
+/calendar.py
+/security.py

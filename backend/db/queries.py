@@ -179,7 +179,11 @@ async def get_feedback_for_prompt(limit: int = 10):
     )
 
 
-async def get_feedback_count():
+async def get_feedback_count(tenant_id: Optional[str] = None):
+    if tenant_id:
+        return await db.fetchrow(
+            "SELECT COUNT(*) FROM feedback WHERE tenant_id=$1", tenant_id
+        )
     return await db.fetchrow("SELECT COUNT(*) FROM feedback")
 
 
@@ -244,7 +248,17 @@ async def list_documents(limit: int = 10, tenant_id: str = None):
 # DASHBOARD / STATS
 # ══════════════════════════════════════════════════════════════
 
-async def get_status_stats(days: int):
+async def get_status_stats(days: int, tenant_id: Optional[str] = None):
+    if tenant_id:
+        return await db.fetch(
+            f"""SELECT status, COUNT(*) AS cnt,
+                       COUNT(*) FILTER(WHERE urgent) AS urg,
+                       AVG(confidence) AS avg_conf
+                FROM emails
+                WHERE tenant_id=$1 AND created_at > NOW() - INTERVAL '{days} days'
+                GROUP BY status""",
+            tenant_id
+        )
     return await db.fetch(
         f"""SELECT status, COUNT(*) AS cnt,
                    COUNT(*) FILTER(WHERE urgent) AS urg,
@@ -254,13 +268,27 @@ async def get_status_stats(days: int):
     )
 
 
-async def get_avg_confidence(days: int):
+async def get_avg_confidence(days: int, tenant_id: Optional[str] = None):
+    if tenant_id:
+        return await db.fetchrow(
+            f"SELECT AVG(confidence)*100 AS v FROM emails WHERE tenant_id=$1 AND created_at > NOW() - INTERVAL '{days} days'",
+            tenant_id
+        )
     return await db.fetchrow(
         f"SELECT AVG(confidence)*100 AS v FROM emails WHERE created_at > NOW() - INTERVAL '{days} days'"
     )
 
 
-async def get_timeline(days: int = 7):
+async def get_timeline(days: int = 7, tenant_id: Optional[str] = None):
+    if tenant_id:
+        return await db.fetch(
+            f"""SELECT DATE(created_at)::text AS day, COUNT(*) AS cnt,
+                       COUNT(*) FILTER(WHERE status='NEEDS_ATTENTION') AS needs
+                FROM emails
+                WHERE tenant_id=$1 AND created_at > NOW() - INTERVAL '{days} days'
+                GROUP BY day ORDER BY day""",
+            tenant_id
+        )
     return await db.fetch(
         f"""SELECT DATE(created_at)::text AS day, COUNT(*) AS cnt,
                    COUNT(*) FILTER(WHERE status='NEEDS_ATTENTION') AS needs
@@ -269,7 +297,15 @@ async def get_timeline(days: int = 7):
     )
 
 
-async def get_category_breakdown(days: int):
+async def get_category_breakdown(days: int, tenant_id: Optional[str] = None):
+    if tenant_id:
+        return await db.fetch(
+            f"""SELECT COALESCE(category,'other') AS cat, COUNT(*) AS cnt
+                FROM emails
+                WHERE tenant_id=$1 AND created_at > NOW() - INTERVAL '{days} days'
+                GROUP BY cat""",
+            tenant_id
+        )
     return await db.fetch(
         f"""SELECT COALESCE(category,'other') AS cat, COUNT(*) AS cnt
             FROM emails WHERE created_at > NOW() - INTERVAL '{days} days'
@@ -277,7 +313,12 @@ async def get_category_breakdown(days: int):
     )
 
 
-async def get_recent_activity(limit: int = 8):
+async def get_recent_activity(limit: int = 8, tenant_id: Optional[str] = None):
+    if tenant_id:
+        return await db.fetch(
+            "SELECT subject, sender, status, confidence, created_at FROM emails WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT $2",
+            tenant_id, limit
+        )
     return await db.fetch(
         "SELECT subject, sender, status, confidence, created_at FROM emails ORDER BY created_at DESC LIMIT $1",
         limit

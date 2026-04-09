@@ -355,7 +355,7 @@ function Step4AiTest({ data, onChange, authFetch }) {
     setTesting(true)
     setResult(null)
     try {
-      const res = await authFetch(`${apiUrl}/classify`, {
+      const res = await authFetch(`${apiUrl}/api/classify`, {
         method: 'POST',
         body: JSON.stringify({ subject, body, sender: 'teszt@pelda.hu' }),
       })

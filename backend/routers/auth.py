@@ -21,8 +21,12 @@ async def login(req: LoginRequest):
     vagy explicit tenant_slug query paraméterrel.
     """
     domain = req.email.split("@")[1] if "@" in req.email else ""
+    # pl. "agentify-test.hu" → prefix = "agentify-test"
+    prefix = domain.split(".")[0] if domain else ""
 
     tenant = await aq.get_tenant_by_slug(domain)
+    if not tenant and prefix and prefix != domain:
+        tenant = await aq.get_tenant_by_slug(prefix)
     if not tenant:
         # Fallback: demo tenant fejlesztéshez
         tenant = await aq.get_tenant_by_slug("demo")

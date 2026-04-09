@@ -4,25 +4,31 @@ Dashboard KPI adatok, AI insights, health check.
 import json
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, Security
+from fastapi import APIRouter, Depends, Security
+from typing import Optional
 import httpx
 
 import db.queries as q
 import db.database as db
 from services import openai_service, qdrant_service
 from core.config import OPENAI_API_KEY, COMPANY_NAME, N8N_BASE_URL
-from core.security import require_api_key
+from core.security import require_api_key, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Dashboard"])
 log    = logging.getLogger("docuagent")
 
 
 @router.get("/dashboard")
-async def dashboard_data(days: int = 7, _auth=Security(require_api_key)):
+async def dashboard_data(
+    days: int = 7,
+    current_user: dict = Depends(get_current_user),
+):
+    tenant_id = current_user.get("tenant_id") if current_user.get("auth_type") != "api_key" else None
+
     vectors = await qdrant_service.count_vectors()
     n8n_ok  = await _check_n8n()
 
-    rows    = await q.get_status_stats(days)
+    rows    = await q.get_status_stats(days, tenant_id=tenant_id)
     sm      = {r["status"]: r for r in (rows or [])}
     total   = sum(r["cnt"] for r in (rows or []))
     ai_ans  = sm.get("AI_ANSWERED",     {}).get("cnt", 0)
@@ -31,13 +37,13 @@ async def dashboard_data(days: int = 7, _auth=Security(require_api_key)):
     new_cnt = sm.get("NEW",             {}).get("cnt", 0)
     urgent  = sum(r.get("urg", 0) for r in (rows or []))
 
-    avg_c   = await q.get_avg_confidence(days)
-    fb_cnt  = await q.get_feedback_count()
-    timeline = await q.get_timeline(days)
-    cats     = await q.get_category_breakdown(days)
+    avg_c    = await q.get_avg_confidence(days, tenant_id=tenant_id)
+    fb_cnt   = await q.get_feedback_count(tenant_id=tenant_id)
+    timeline = await q.get_timeline(days, tenant_id=tenant_id)
+    cats     = await q.get_category_breakdown(days, tenant_id=tenant_id)
     cat_map  = {r["cat"]: r["cnt"] for r in (cats or [])}
 
-    act_rows = await q.get_recent_activity()
+    act_rows = await q.get_recent_activity(tenant_id=tenant_id)
     activity = [
         {
             "type":       "alert" if r["status"] == "NEEDS_ATTENTION" else "ok" if r["status"] == "AI_ANSWERED" else "email",
@@ -48,7 +54,7 @@ async def dashboard_data(days: int = 7, _auth=Security(require_api_key)):
         for r in (act_rows or [])
     ]
 
-    doc_rows = await q.list_documents(limit=10)
+    doc_rows = await q.list_documents(limit=10, tenant_id=tenant_id)
     docs = [
         {
             "id":       str(r["id"]),

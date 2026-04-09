@@ -194,13 +194,13 @@ async def get_feedback_count(tenant_id: Optional[str] = None):
 async def insert_document(doc_id: str, filename: str, uploader: str,
                            uploader_email: str, tag: str, department: str,
                            access_level: str, size_kb: int, lang: str,
-                           qdrant_ok: bool):
+                           qdrant_ok: bool, tenant_id: Optional[str] = None):
     return await db.execute(
         """INSERT INTO documents
-           (id, filename, uploader, uploader_email, tag, department,
+           (id, tenant_id, filename, uploader, uploader_email, tag, department,
             access_level, size_kb, lang, qdrant_ok)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)""",
-        doc_id, filename, uploader, uploader_email, tag, department,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)""",
+        doc_id, tenant_id, filename, uploader, uploader_email, tag, department,
         access_level, size_kb, lang, qdrant_ok
     )
 

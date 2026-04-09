@@ -53,6 +53,7 @@ async def upload_doc(
     access_level:   str = Form("employee"),
     current_user:   dict = Depends(get_current_user)
 ):
+    tenant_id = current_user.get("tenant_id")
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(400, f"Nem támogatott formátum: {ext}")
@@ -74,7 +75,7 @@ async def upload_doc(
         )
 
     # Verziózás: ha ugyanolyan nevű fájl már létezik, töröld a régit
-    existing = await q.get_document_by_filename(file.filename)
+    existing = await q.get_document_by_filename(file.filename, tenant_id=tenant_id)
     if existing:
         old_collection = existing.get("qdrant_collection") or qdrant_service.tag_to_collection(existing.get("tag", "general"))
         await qdrant_service.delete_by_doc_id(str(existing["id"]), old_collection)
@@ -83,7 +84,8 @@ async def upload_doc(
 
     await q.insert_document(
         doc_id, file.filename, uploader_name, uploader_email,
-        tag, department, access_level, size_kb, lang, qdrant_ok
+        tag, department, access_level, size_kb, lang, qdrant_ok,
+        tenant_id=tenant_id
     )
 
     log.info(f"Uploaded: {file.filename} ({size_kb}KB, lang={lang}, collection={collection}, qdrant={qdrant_ok})")

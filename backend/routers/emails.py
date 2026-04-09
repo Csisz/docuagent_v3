@@ -277,12 +277,12 @@ async def approve_email(
     if not reply_text:
         raise HTTPException(400, "Nincs AI válasz javaslat — előbb szerkeszd meg")
 
-    is_demo = current_user.get("tenant_slug") == "demo"
+    is_demo = current_user.get("tenant_slug", "") == "demo"
     if is_demo:
         await q.update_email_status(email_id, "AI_ANSWERED")
         log.info(f"Demo approve (mock): {email_id} by={current_user.get('email')}")
-        return {"status": "mock_sent", "demo": True, "email_id": email_id,
-                "message": "Demo módban az email nem kerül valóban elküldésre"}
+        return {"status": "mock_sent", "demo": True,
+                "message": "Demo módban az email nem kerül elküldésre"}
 
     await q.update_email_reply(email_id, reply_text)
     await q.insert_feedback(
@@ -349,12 +349,12 @@ async def edit_and_approve(
     if not row:
         raise HTTPException(404, "Email nem található")
 
-    is_demo = current_user.get("tenant_slug") == "demo"
+    is_demo = current_user.get("tenant_slug", "") == "demo"
     if is_demo:
         await q.update_email_status(email_id, "AI_ANSWERED")
         log.info(f"Demo edit-approve (mock): {email_id} by={current_user.get('email')}")
-        return {"status": "mock_sent", "demo": True, "email_id": email_id,
-                "message": "Demo módban az email nem kerül valóban elküldésre"}
+        return {"status": "mock_sent", "demo": True,
+                "message": "Demo módban az email nem kerül elküldésre"}
 
     await q.update_email_reply(email_id, reply_text)
     await q.insert_feedback(

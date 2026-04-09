@@ -271,10 +271,17 @@ export default function TemplatePage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await authFetch(`${API}/api/templates`)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const json = await res.json()
-        setTemplates(json.templates || [])
+        const [tplRes, cfgRes] = await Promise.all([
+          authFetch(`${API}/api/templates`),
+          authFetch(`${API}/api/config/agent`),
+        ])
+        if (!tplRes.ok) throw new Error(`HTTP ${tplRes.status}`)
+        const tplJson = await tplRes.json()
+        setTemplates(tplJson.templates || [])
+        if (cfgRes.ok) {
+          const cfgJson = await cfgRes.json()
+          if (cfgJson.template_id) setActiveId(cfgJson.template_id)
+        }
       } catch {
         setError('Nem sikerült betölteni a sablonokat.')
       } finally {

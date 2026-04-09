@@ -62,6 +62,7 @@ app.include_router(chat.widget_router)
 app.include_router(calendar.router)
 app.include_router(onboarding.router)
 app.include_router(templates.router)
+app.include_router(templates.config_router)
 app.include_router(demo.router)
 
 

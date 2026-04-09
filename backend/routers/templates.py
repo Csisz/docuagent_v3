@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException, Depends
 import db.database as db
 from core.security import get_current_user
 
-router = APIRouter(prefix="/api/templates", tags=["Templates"])
+router        = APIRouter(prefix="/api/templates", tags=["Templates"])
+config_router = APIRouter(prefix="/api/config",    tags=["Config"])
 log = logging.getLogger("docuagent")
 
 
@@ -89,3 +90,20 @@ async def apply_template(
         "category":    row["category"],
         "applied":     list(entries.keys()),
     }
+
+
+@config_router.get("/agent")
+async def get_agent_config(current_user: dict = Depends(get_current_user)):
+    """
+    Visszaadja a tenant agent konfigurációját a config táblából.
+    Tartalmazza: agent.template_id, agent.template_name, stb.
+    """
+    tenant_id = current_user.get("tenant_id")
+    if not tenant_id:
+        return {}
+
+    rows = await db.fetch(
+        "SELECT key, value FROM config WHERE tenant_id=$1 AND key LIKE 'agent.%'",
+        tenant_id
+    )
+    return {row["key"].removeprefix("agent."): row["value"] for row in (rows or [])}

@@ -277,6 +277,13 @@ async def approve_email(
     if not reply_text:
         raise HTTPException(400, "Nincs AI válasz javaslat — előbb szerkeszd meg")
 
+    is_demo = current_user.get("tenant_slug") == "demo"
+    if is_demo:
+        await q.update_email_status(email_id, "AI_ANSWERED")
+        log.info(f"Demo approve (mock): {email_id} by={current_user.get('email')}")
+        return {"status": "mock_sent", "demo": True, "email_id": email_id,
+                "message": "Demo módban az email nem kerül valóban elküldésre"}
+
     await q.update_email_reply(email_id, reply_text)
     await q.insert_feedback(
         email_id, row["status"], "AI_ANSWERED",
@@ -285,12 +292,8 @@ async def approve_email(
 
     n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
     sent_via = "dashboard_only"
-    is_demo  = current_user.get("tenant_slug") == "demo"
 
-    if is_demo:
-        sent_via = "mock_demo"
-        log.info(f"Demo mode: skipping n8n send for email {email_id}")
-    elif n8n_send_webhook and row.get("message_id"):
+    if n8n_send_webhook and row.get("message_id"):
         try:
             async with httpx.AsyncClient(timeout=10) as c:
                 resp = await c.post(n8n_send_webhook, json={
@@ -309,7 +312,7 @@ async def approve_email(
             log.warning(f"approve: n8n send webhook error: {e}")
 
     log.info(f"Approved email {email_id} via={sent_via} by={current_user.get('email')}")
-    return {"status": "ok", "email_id": email_id, "sent_via": sent_via}
+    return {"status": "ok", "email_id": email_id, "sent_via": sent_via}  # noqa: RET504
 
 
 @router.post("/emails/{email_id}/reject")
@@ -346,6 +349,13 @@ async def edit_and_approve(
     if not row:
         raise HTTPException(404, "Email nem található")
 
+    is_demo = current_user.get("tenant_slug") == "demo"
+    if is_demo:
+        await q.update_email_status(email_id, "AI_ANSWERED")
+        log.info(f"Demo edit-approve (mock): {email_id} by={current_user.get('email')}")
+        return {"status": "mock_sent", "demo": True, "email_id": email_id,
+                "message": "Demo módban az email nem kerül valóban elküldésre"}
+
     await q.update_email_reply(email_id, reply_text)
     await q.insert_feedback(
         email_id, row["status"], "AI_ANSWERED",
@@ -355,12 +365,8 @@ async def edit_and_approve(
 
     n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
     sent_via = "dashboard_only"
-    is_demo  = current_user.get("tenant_slug") == "demo"
 
-    if is_demo:
-        sent_via = "mock_demo"
-        log.info(f"Demo mode: skipping n8n edit-approve send for email {email_id}")
-    elif n8n_send_webhook and row.get("message_id"):
+    if n8n_send_webhook and row.get("message_id"):
         try:
             async with httpx.AsyncClient(timeout=10) as c:
                 resp = await c.post(n8n_send_webhook, json={

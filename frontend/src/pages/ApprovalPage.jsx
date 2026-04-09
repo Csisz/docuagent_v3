@@ -118,7 +118,22 @@ export default function ApprovalPage() {
     setLoading(true)
     try {
       const d = await api.approvalQueue()
-      setEmails(d.emails || [])
+      // Normalize rag_sources: ha stringként érkezne, parse-oljuk
+      const emails = (d.emails || []).map(email => ({
+        ...email,
+        rag_sources: (() => {
+          const src = email.rag_sources
+          if (Array.isArray(src)) return src
+          if (typeof src === 'string') {
+            try { return JSON.parse(src) } catch { return [] }
+          }
+          return []
+        })(),
+      }))
+      if (emails.length > 0) {
+        console.debug('[ApprovalQueue] first email rag_sources:', emails[0].rag_sources, '| rag_confidence:', emails[0].rag_confidence)
+      }
+      setEmails(emails)
       setTotal(d.total || 0)
     } catch {
       toast('Jóváhagyási sor betöltése sikertelen', 'err')

@@ -410,8 +410,8 @@ async def _insert_demo_data(tenant_id: str):
             created,
         )
 
-        # RAG log bejegyzés az AI_ANSWERED emailekhez
-        if e["status"] == "AI_ANSWERED" and e["ai_response"]:
+        # RAG log bejegyzés az AI_ANSWERED és NEEDS_ATTENTION emailekhez
+        if e["status"] in ("AI_ANSWERED", "NEEDS_ATTENTION") and e["confidence"] > 0:
             await db.execute(
                 """INSERT INTO rag_logs
                    (tenant_id, email_id, query, answer, confidence,
@@ -419,14 +419,14 @@ async def _insert_demo_data(tenant_id: str):
                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)""",
                 tenant_id, eid,
                 e["subject"] + "\n" + e["body"][:200],
-                e["ai_response"],
+                e["ai_response"] or None,
                 e["confidence"],
                 2,
                 json.dumps([
                     {"filename": "agentify_szolgaltatasi_feltetelek_2024.pdf", "score": round(e["confidence"] - 0.05, 2), "collection": "general"},
                     {"filename": "ugyfelkezeles_folyamat_leiras.docx",         "score": round(e["confidence"] - 0.12, 2), "collection": "general"},
                 ]),
-                False, "HU",
+                e["status"] == "NEEDS_ATTENTION", "HU",
                 int(800 + i * 120),
                 created + timedelta(seconds=2),
             )

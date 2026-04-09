@@ -4,13 +4,11 @@ import { useAuth } from '../context/AuthContext'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-const BG      = 'transparent'
 const CARD    = 'rgba(13,27,46,0.7)'
 const BORDER  = 'rgba(255,255,255,0.08)'
 const TEXT    = '#e2e8f0'
 const MUTED   = '#64748b'
 const PRIMARY = '#1a56db'
-const ACCENT  = '#ff7820'
 
 const CATEGORY_META = {
   accounting: { icon: '📊', color: '#4ade80', label: 'Könyvelés' },
@@ -19,7 +17,51 @@ const CATEGORY_META = {
   hr:         { icon: '👥', color: '#38bdf8', label: 'HR' },
 }
 
+function SuccessModal({ template, onClose }) {
+  const meta = CATEGORY_META[template.category] || { icon: '🤖', color: PRIMARY }
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: 400, maxWidth: '90vw', borderRadius: 16,
+          background: '#0d1b2e', border: `1px solid ${meta.color}44`,
+          padding: '2rem', boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+          textAlign: 'center',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ fontSize: 48, marginBottom: '1rem' }}>✅</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: TEXT, marginBottom: '0.5rem' }}>
+          Sablon alkalmazva!
+        </div>
+        <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: '1.5rem' }}>
+          A <strong style={{ color: TEXT }}>{template.name}</strong> sablon sikeresen beállítva.
+          Az AI ügynök mostantól ezzel a konfigurációval dolgozik.
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            padding: '0.6rem 1.5rem', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            background: meta.color, color: '#0d1b2e',
+            border: 'none', cursor: 'pointer', width: '100%',
+          }}
+        >
+          Rendben
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ConfirmModal({ template, onConfirm, onCancel, applying }) {
+  const meta = CATEGORY_META[template.category] || { icon: '🤖', color: PRIMARY, label: template.category }
   return (
     <div
       style={{
@@ -38,14 +80,14 @@ function ConfirmModal({ template, onConfirm, onCancel, applying }) {
         onClick={e => e.stopPropagation()}
       >
         <div style={{ fontSize: 32, marginBottom: '0.5rem' }}>
-          {CATEGORY_META[template.category]?.icon || '🤖'}
+          {meta.icon}
         </div>
         <div style={{ fontSize: 17, fontWeight: 700, color: TEXT, marginBottom: '0.375rem' }}>
           Alkalmazzuk a sablont?
         </div>
         <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.7, marginBottom: '1.25rem' }}>
-          A <strong style={{ color: TEXT }}>{template.name}</strong> sablon alkalmaz után a rendszer az iparágspecifikus beállításokkal fog dolgozni.
-          A beállítások a Dokumentumok feltöltése lépésben tovább finomhangolhatók.
+          A <strong style={{ color: TEXT }}>{template.name}</strong> sablon alkalmazása után a rendszer
+          az iparágspecifikus beállításokkal fog dolgozni.
         </div>
 
         <div style={{
@@ -57,8 +99,7 @@ function ConfirmModal({ template, onConfirm, onCancel, applying }) {
           </div>
           {(template.config?.features || []).map((f, i) => (
             <div key={i} style={{ fontSize: 12, color: TEXT, padding: '0.2rem 0', display: 'flex', gap: '0.5rem' }}>
-              <span style={{ color: CATEGORY_META[template.category]?.color || PRIMARY }}>›</span>
-              {f}
+              <span style={{ color: meta.color }}>›</span>{f}
             </div>
           ))}
           <div style={{ marginTop: '0.625rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -107,27 +148,45 @@ function ConfirmModal({ template, onConfirm, onCancel, applying }) {
   )
 }
 
-function TemplateCard({ template, onSelect }) {
+function TemplateCard({ template, onSelect, isActive }) {
   const meta = CATEGORY_META[template.category] || { icon: '🤖', color: PRIMARY, label: template.category }
   const features = template.config?.features || []
 
   return (
     <div style={{
-      background: CARD, border: `1px solid ${BORDER}`,
+      background: isActive ? `${meta.color}10` : CARD,
+      border: isActive ? `2px solid ${meta.color}` : `1px solid ${BORDER}`,
       borderRadius: 14, padding: '1.375rem',
       display: 'flex', flexDirection: 'column', gap: '1rem',
-      transition: 'border-color 0.2s, box-shadow 0.2s',
+      transition: 'border-color 0.2s, box-shadow 0.2s, background 0.2s',
       cursor: 'default',
+      position: 'relative',
     }}
       onMouseEnter={e => {
-        e.currentTarget.style.borderColor = `${meta.color}44`
-        e.currentTarget.style.boxShadow = `0 4px 24px rgba(0,0,0,0.3)`
+        if (!isActive) {
+          e.currentTarget.style.borderColor = `${meta.color}44`
+          e.currentTarget.style.boxShadow = `0 4px 24px rgba(0,0,0,0.3)`
+        }
       }}
       onMouseLeave={e => {
-        e.currentTarget.style.borderColor = BORDER
-        e.currentTarget.style.boxShadow = 'none'
+        if (!isActive) {
+          e.currentTarget.style.borderColor = BORDER
+          e.currentTarget.style.boxShadow = 'none'
+        }
       }}
     >
+      {/* Aktív jelzés */}
+      {isActive && (
+        <div style={{
+          position: 'absolute', top: 12, right: 12,
+          background: meta.color, color: '#0d1b2e',
+          fontSize: 10, fontWeight: 700, padding: '0.2rem 0.6rem',
+          borderRadius: 99, textTransform: 'uppercase', letterSpacing: '0.06em',
+        }}>
+          ✓ Aktív
+        </div>
+      )}
+
       {/* Fejléc */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.875rem' }}>
         <div style={{
@@ -182,17 +241,17 @@ function TemplateCard({ template, onSelect }) {
         style={{
           marginTop: 'auto', padding: '0.5rem 1rem', borderRadius: 8,
           fontSize: 13, fontWeight: 600,
-          background: `${meta.color}18`,
-          color: meta.color,
+          background: isActive ? meta.color : `${meta.color}18`,
+          color: isActive ? '#0d1b2e' : meta.color,
           border: `1px solid ${meta.color}33`,
           cursor: 'pointer',
           transition: 'background 0.15s',
           width: '100%',
         }}
-        onMouseEnter={e => e.currentTarget.style.background = `${meta.color}30`}
-        onMouseLeave={e => e.currentTarget.style.background = `${meta.color}18`}
+        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = `${meta.color}30` }}
+        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = `${meta.color}18` }}
       >
-        Alkalmazás →
+        {isActive ? '✓ Kiválasztva' : 'Alkalmazás →'}
       </button>
     </div>
   )
@@ -200,13 +259,14 @@ function TemplateCard({ template, onSelect }) {
 
 export default function TemplatePage() {
   const { authFetch } = useAuth()
-  const navigate = useNavigate()
 
-  const [templates, setTemplates] = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [selected,  setSelected]  = useState(null)
-  const [applying,  setApplying]  = useState(false)
-  const [error,     setError]     = useState('')
+  const [templates,   setTemplates]   = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [selected,    setSelected]    = useState(null)   // confirm modal
+  const [activeId,    setActiveId]    = useState(null)   // kiválasztott sablon
+  const [applying,    setApplying]    = useState(false)
+  const [error,       setError]       = useState('')
+  const [showSuccess, setShowSuccess] = useState(null)   // success modal template
 
   useEffect(() => {
     async function load() {
@@ -215,7 +275,7 @@ export default function TemplatePage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = await res.json()
         setTemplates(json.templates || [])
-      } catch (e) {
+      } catch {
         setError('Nem sikerült betölteni a sablonokat.')
       } finally {
         setLoading(false)
@@ -227,20 +287,22 @@ export default function TemplatePage() {
   async function handleApply() {
     if (!selected) return
     setApplying(true)
+    setError('')
     try {
       const res = await authFetch(`${API}/api/templates/${selected.id}/apply`, { method: 'POST' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      // Siker → redirect onboarding 3. lépésre (dokumentumok)
-      navigate('/onboarding?step=3')
-    } catch (e) {
+      setActiveId(selected.id)
+      setShowSuccess(selected)
+      setSelected(null)
+    } catch {
       setError('Alkalmazás sikertelen. Próbáld újra.')
+    } finally {
       setApplying(false)
     }
   }
 
   return (
     <div style={{ padding: '2rem', maxWidth: 1100, margin: '0 auto' }}>
-      {/* Fejléc */}
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: TEXT, marginBottom: '0.375rem' }}>
           Sablon könyvtár
@@ -272,14 +334,19 @@ export default function TemplatePage() {
           gap: '1.25rem',
         }}>
           {templates.map(t => (
-            <TemplateCard key={t.id} template={t} onSelect={setSelected} />
+            <TemplateCard
+              key={t.id}
+              template={t}
+              onSelect={setSelected}
+              isActive={activeId === t.id}
+            />
           ))}
         </div>
       )}
 
       {templates.length === 0 && !loading && !error && (
         <div style={{ textAlign: 'center', padding: '3rem', color: MUTED, fontSize: 14 }}>
-          Nem találhatók sablonok. Futtasd a migrate_v3_9_templates.sql migrációt.
+          Nem találhatók sablonok.
         </div>
       )}
 
@@ -289,6 +356,13 @@ export default function TemplatePage() {
           onConfirm={handleApply}
           onCancel={() => { if (!applying) setSelected(null) }}
           applying={applying}
+        />
+      )}
+
+      {showSuccess && (
+        <SuccessModal
+          template={showSuccess}
+          onClose={() => setShowSuccess(null)}
         />
       )}
     </div>

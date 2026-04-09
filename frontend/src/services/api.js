@@ -6,12 +6,21 @@ function getJwtToken() {
 
 async function req(path, opts = {}) {
   const jwt = getJwtToken()
+  const apiKey = getApiKey()
+
   const headers = {
     'Content-Type': 'application/json',
-    'X-API-Key': getApiKey(),
-    ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
     ...opts.headers,
   }
+
+  // JWT prioritás: ha van JWT token, azt küldjük (nem az API key-t)
+  // Az API key csak akkor kerül headerbe ha nincs JWT token
+  if (jwt) {
+    headers['Authorization'] = `Bearer ${jwt}`
+  } else if (apiKey) {
+    headers['X-API-Key'] = apiKey
+  }
+
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
     signal: opts.signal || AbortSignal.timeout(10000),
@@ -56,7 +65,7 @@ export const api = {
     }),
 
   classify: (subject, body, sender = '') =>
-    req('/classify', {
+    req('/api/classify', {
       method: 'POST',
       body: JSON.stringify({ subject, body, sender }),
     }),

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
 import { useStore } from '../store'
+import { useAuth } from '../context/AuthContext'
 import { Skeleton } from '../components/ui'
 import { useToast } from '../hooks'
 import { CATEGORY_LABELS, SENTIMENT_LABELS } from '../constants/labels'
@@ -94,6 +95,7 @@ function RagSources({ sources }) {
 // ══════════════════════════════════════════════════════════════
 export default function ApprovalPage() {
   const { theme } = useStore()
+  const { isDemo } = useAuth()
   const toast = useToast()
 
   const [emails,   setEmails]   = useState([])
@@ -189,7 +191,7 @@ export default function ApprovalPage() {
   const panelStyle = { background: card, border: `1px solid ${border}`, borderRadius: 12 }
 
   return (
-    <div style={{ color: text, fontFamily: 'inherit', height: '100%', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <div style={{ color: text, fontFamily: 'inherit', height: `calc(100vh - ${isDemo ? 158 : 130}px)`, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
       {/* ── Fejléc ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -374,7 +376,7 @@ export default function ApprovalPage() {
                   value={replyTxt}
                   onChange={e => setReplyTxt(e.target.value)}
                   readOnly={!editMode}
-                  rows={7}
+                  rows={5}
                   placeholder="Nincs AI válasz javaslat..."
                   style={{
                     width: '100%', boxSizing: 'border-box',

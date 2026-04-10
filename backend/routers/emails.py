@@ -53,6 +53,46 @@ async def list_emails(
     }
 
 
+@router.get("/emails/{email_id}")
+async def get_email(
+    email_id: str,
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+    _auth=Security(require_api_key)
+):
+    """Email részletek + legutóbbi RAG forrásai."""
+    import json as _json
+    row = await q.get_email_with_rag(email_id)
+    if not row:
+        raise HTTPException(404, "Email nem található")
+
+    src = row["source_docs"]
+    if isinstance(src, str):
+        try:
+            src = _json.loads(src)
+        except Exception:
+            src = []
+    elif src is None:
+        src = []
+
+    return {
+        "id":            str(row["id"]),
+        "subject":       row["subject"] or "",
+        "sender":        row["sender"] or "",
+        "body":          row["body"] or "",
+        "category":      row["category"] or "other",
+        "status":        row["status"],
+        "urgent":        row["urgent"],
+        "confidence":    round(float(row["confidence"] or 0), 2),
+        "ai_response":   row["ai_response"],
+        "ai_decision":   row["ai_decision"],
+        "urgency_score": int(row["urgency_score"] or 0),
+        "sentiment":     row["sentiment"] or "neutral",
+        "created_at":    row["created_at"].isoformat() if row["created_at"] else "",
+        "source_docs":   src,
+        "rag_confidence": round(float(row["rag_confidence"] or 0), 2) if row["rag_confidence"] else None,
+    }
+
+
 @router.patch("/emails/{email_id}/status")
 async def update_status(
     email_id: str,

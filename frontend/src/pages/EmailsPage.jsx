@@ -277,11 +277,57 @@ export default function EmailsPage({ defaultFilter }) {
   )
 }
 
+function RagSources({ sources, isLight }) {
+  if (!sources || sources.length === 0) {
+    return (
+      <div className={isLight ? 'text-slate-400 text-[12px]' : 'text-zinc-600 text-[12px]'}>
+        Nincs dokumentum forrás
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-1.5">
+      {sources.map((s, i) => {
+        const pct = Math.round((s.score || 0) * 100)
+        const scoreColor = pct >= 80 ? '#4ade80' : pct >= 60 ? '#fbbf24' : '#f87171'
+        return (
+          <div key={i} className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 border text-[11.5px] ${isLight ? 'bg-blue-50 border-blue-200' : 'bg-blue-500/[.07] border-blue-400/20'}`}>
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" className="w-3 h-3 flex-shrink-0 mt-0.5 text-blue-400">
+              <path d="M2 1h6l3 3v7H2V1z"/><path d="M8 1v3h3"/>
+            </svg>
+            <span className={`flex-1 font-mono truncate ${isLight ? 'text-blue-700' : 'text-blue-300'}`} title={s.filename}>
+              {s.filename}
+            </span>
+            <span className="font-bold font-mono flex-shrink-0" style={{ color: scoreColor }}>
+              {pct}%
+            </span>
+            <span className={`font-mono flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] ${isLight ? 'bg-slate-100 text-slate-500' : 'bg-white/10 text-zinc-500'}`}>
+              {s.collection || 'general'}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusChange, onDelete, onRefresh, theme }) {
   const isLight = theme === 'light'
   const [showReplyEditor, setShowReplyEditor] = useState(false)
+  const [ragSources, setRagSources] = useState(null)
+  const [ragLoading, setRagLoading] = useState(false)
   let aiD = {}
   try { aiD = typeof e.ai_decision === 'string' ? JSON.parse(e.ai_decision) : e.ai_decision || {} } catch {}
+
+  // Expand-kor letöltjük az email részleteit (RAG forrásokkal)
+  useEffect(() => {
+    if (!expanded || ragSources !== null) return
+    setRagLoading(true)
+    api.getEmail(e.id)
+      .then(d => setRagSources(d.source_docs || []))
+      .catch(() => setRagSources([]))
+      .finally(() => setRagLoading(false))
+  }, [expanded, e.id, ragSources])
 
   const catColor = { complaint: 'text-red-400', inquiry: 'text-blue-400', other: 'text-zinc-500' }[e.category] || 'text-zinc-500'
   const dt = e.created_at ? new Date(e.created_at).toLocaleString('hu-HU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
@@ -479,6 +525,15 @@ function EmailRow({ email: e, expanded, selected, onToggle, onSelect, onStatusCh
                     )}
                   </div>
                 )}
+
+                {/* RAG Forrásai */}
+                <div className={clsx('text-[9.5px] font-mono uppercase tracking-[.08em] mt-3 mb-1', isLight ? 'text-slate-400' : 'text-zinc-500')}>
+                  AI Forrásai
+                </div>
+                {ragLoading
+                  ? <div className={clsx('text-[11px] font-mono', isLight ? 'text-slate-400' : 'text-zinc-600')}>Betöltés…</div>
+                  : <RagSources sources={ragSources} isLight={isLight} />
+                }
               </div>
             </div>
           </td>

@@ -35,6 +35,7 @@ export const api = {
   health:           ()         => req('/api/health'),
   aiInsights:       ()         => req('/api/ai-insights', { signal: AbortSignal.timeout(20000) }),
   agentPerformance: (days = 7) => req(`/api/agents/performance?days=${days}`),
+  getEmail:         (id)       => req(`/api/emails/${id}`),
 
   emails:     (status, limit = 50, offset = 0) => {
     const q = new URLSearchParams({ limit, offset, ...(status && { status }) })

@@ -19,6 +19,26 @@ async def get_email_by_id(email_id: str):
     )
 
 
+async def get_email_with_rag(email_id: str):
+    """Email részletek a legutóbbi RAG log forrásaival (LATERAL JOIN)."""
+    return await db.fetchrow(
+        """SELECT
+               e.*,
+               rl.source_docs,
+               rl.confidence AS rag_confidence
+           FROM emails e
+           LEFT JOIN LATERAL (
+               SELECT source_docs, confidence
+               FROM rag_logs
+               WHERE email_id = e.id
+               ORDER BY created_at DESC
+               LIMIT 1
+           ) rl ON true
+           WHERE e.id = $1""",
+        email_id
+    )
+
+
 async def get_email_by_message_id(message_id: str):
     return await db.fetchrow(
         "SELECT id FROM emails WHERE message_id=$1", message_id

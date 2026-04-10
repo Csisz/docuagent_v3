@@ -31,9 +31,10 @@ async function req(path, opts = {}) {
 }
 
 export const api = {
-  dashboard:  ()          => req('/api/dashboard'),
-  health:     ()          => req('/api/health'),
-  aiInsights: ()          => req('/api/ai-insights', { signal: AbortSignal.timeout(20000) }),
+  dashboard:        ()         => req('/api/dashboard'),
+  health:           ()         => req('/api/health'),
+  aiInsights:       ()         => req('/api/ai-insights', { signal: AbortSignal.timeout(20000) }),
+  agentPerformance: (days = 7) => req(`/api/agents/performance?days=${days}`),
 
   emails:     (status, limit = 50, offset = 0) => {
     const q = new URLSearchParams({ limit, offset, ...(status && { status }) })

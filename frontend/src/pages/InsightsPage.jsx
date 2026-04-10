@@ -1,20 +1,34 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../services/api'
 import { Skeleton } from '../components/ui'
 import { useStore } from '../store'
 import clsx from 'clsx'
 
+const CATEGORY_LABELS = {
+  complaint:   'Panasz',
+  inquiry:     'Megkeresés',
+  appointment: 'Időpontfoglalás',
+  other:       'Egyéb',
+}
+
 export default function InsightsPage() {
   const { theme } = useStore()
   const isLight = theme === 'light'
-  const [kpis, setKpis]       = useState(null)
-  const [ai, setAi]           = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [kpis,  setKpis]  = useState(null)
+  const [ai,    setAi]    = useState(null)
+  const [perf,  setPerf]  = useState(null)
+  const [loading,      setLoading]      = useState(false)
+  const [perfLoading,  setPerfLoading]  = useState(false)
+  const [days,  setDays]  = useState(7)
 
   useEffect(() => {
     api.dashboard().then(d => setKpis(d.kpis)).catch(() => {})
     loadAI()
   }, [])
+
+  useEffect(() => {
+    loadPerf()
+  }, [days]) // eslint-disable-line
 
   async function loadAI() {
     setLoading(true)
@@ -28,19 +42,33 @@ export default function InsightsPage() {
     }
   }
 
+  async function loadPerf() {
+    setPerfLoading(true)
+    try {
+      const d = await api.agentPerformance(days)
+      setPerf(d)
+    } catch {
+      setPerf(null)
+    } finally {
+      setPerfLoading(false)
+    }
+  }
+
   return (
     <div className="animate-fade-up space-y-4">
       <p className="text-[13px] text-zinc-400 -mb-1">
-        Részletes AI elemzés az utolsó 7 napra — azonosított problémák, trendek és javasolt teendők.
+        Részletes AI elemzés — azonosított problémák, trendek és javasolt teendők.
         <span className="text-zinc-600 text-[11px] ml-2">Ez az oldal mélyebb betekintést nyújt a Dashboard összefoglalójánál.</span>
       </p>
 
+      {/* KPI mini kártyák */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiMini label="Tanulási korrekciók" value={kpis?.feedback_total?.value} sub="feedback bejegyzés"    color="orange" />
         <KpiMini label="Átlag konfidencia"   value={kpis?.avg_confidence?.value != null ? `${kpis.avg_confidence.value}%` : null} sub="AI döntések minősége" color="green" />
         <KpiMini label="AI megválaszolt"     value={kpis?.ai_answered?.value}    sub="automatikus"           color="purple" />
       </div>
 
+      {/* AI elemzés */}
       <div className="glass-card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[13px] font-semibold text-white">Részletes AI elemzés</h3>
@@ -54,9 +82,85 @@ export default function InsightsPage() {
           <AIBlock label="Ajánlott teendők"      color="green" items={ai?.recommendations} loading={loading} isLight={isLight} />
         </div>
       </div>
+
+      {/* ── Agent Teljesítmény szekció ────────────────────────── */}
+      <div className="glass-card">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h3 className="text-[13px] font-semibold text-white">Agent Teljesítmény</h3>
+            <p className="text-[11px] text-zinc-500 mt-0.5">AI automatizálási metrikák az emailfeldolgozáshoz</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <DaysSelector value={days} onChange={d => setDays(d)} />
+            <button className="btn-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5" onClick={loadPerf}>
+              <span className={perfLoading ? 'animate-spin-slow inline-block' : ''}>↻</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 4 metrika kártya */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <PerfCard
+            icon="🤖"
+            label="Automatizált válaszok"
+            value={perfLoading ? null : perf?.automated_count ?? 0}
+            sub="ez a periódusban"
+            color="#1a56db"
+          />
+          <PerfCard
+            icon="⏱️"
+            label="Becsült időmegtakarítás"
+            value={perfLoading ? null : (perf?.time_saved_hours != null ? `${perf.time_saved_hours} ó` : '0 ó')}
+            sub="~3 perc/email alapján"
+            color="#4ade80"
+          />
+          <PerfCard
+            icon="🎯"
+            label="Automatizálási arány"
+            value={perfLoading ? null : (perf?.automation_rate != null ? `${perf.automation_rate}%` : '0%')}
+            sub={null}
+            color="#ff7820"
+            extra={perf && !perfLoading ? <AutomationBar rate={perf.automation_rate} /> : null}
+          />
+          <PerfCard
+            icon="📈"
+            label="Átlag confidence"
+            value={perfLoading ? null : (perf?.avg_confidence != null ? `${perf.avg_confidence}%` : '—')}
+            sub="AI_ANSWERED emaileknél"
+            color="#a78bfa"
+          />
+        </div>
+
+        {/* Bar chart + Top kategóriák */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+          {/* Bar chart — napi trend */}
+          <div className={clsx('lg:col-span-3 rounded-lg p-4', isLight ? 'bg-slate-50 border border-slate-200' : 'bg-white/[.02] border border-white/7')}>
+            <div className="text-[10px] font-bold uppercase tracking-[.12em] text-zinc-500 mb-3">
+              Napi emailfeldolgozás (automatizált vs manuális)
+            </div>
+            {perfLoading
+              ? <Skeleton className="h-36 w-full" />
+              : <DailyBarChart data={perf?.daily_trend || []} isLight={isLight} />
+            }
+          </div>
+
+          {/* Top kategóriák táblázat */}
+          <div className={clsx('lg:col-span-2 rounded-lg p-4', isLight ? 'bg-slate-50 border border-slate-200' : 'bg-white/[.02] border border-white/7')}>
+            <div className="text-[10px] font-bold uppercase tracking-[.12em] text-zinc-500 mb-3">
+              Top kategóriák
+            </div>
+            {perfLoading
+              ? <><Skeleton className="h-5 mb-2" /><Skeleton className="h-5 mb-2" /><Skeleton className="h-5 mb-2 w-3/4" /></>
+              : <CategoryTable rows={perf?.top_categories || []} isLight={isLight} />
+            }
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
+
+// ── KPI mini (meglévő) ────────────────────────────────────────
 
 function KpiMini({ label, value, sub, color }) {
   const colors = {
@@ -93,4 +197,190 @@ function AIBlock({ label, color, items, loading, isLight }) {
       }
     </div>
   )
+}
+
+// ── Agent Teljesítmény komponensek ────────────────────────────
+
+function DaysSelector({ value, onChange }) {
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-white/10">
+      {[7, 14, 30].map(d => (
+        <button
+          key={d}
+          onClick={() => onChange(d)}
+          className={clsx(
+            'px-3 py-1 text-[11px] font-mono transition-colors',
+            value === d
+              ? 'bg-[#1a56db] text-white'
+              : 'text-zinc-500 hover:text-zinc-300'
+          )}
+        >
+          {d}n
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function PerfCard({ icon, label, value, sub, color, extra }) {
+  return (
+    <div className="bg-white/[.03] border border-white/7 rounded-lg p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-base">{icon}</span>
+        <span className="text-[10px] text-zinc-500 uppercase tracking-[.10em] font-mono leading-tight">{label}</span>
+      </div>
+      <div className="text-2xl font-bold tracking-tight" style={{ color }}>
+        {value != null ? value : <Skeleton className="h-7 w-16 inline-block" />}
+      </div>
+      {sub && <div className="text-[10px] text-zinc-600 mt-1 font-mono">{sub}</div>}
+      {extra && <div className="mt-2">{extra}</div>}
+    </div>
+  )
+}
+
+function AutomationBar({ rate }) {
+  const pct = Math.min(100, Math.max(0, rate || 0))
+  return (
+    <div>
+      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, background: '#ff7820' }}
+        />
+      </div>
+      <div className="text-[10px] text-zinc-600 mt-1 font-mono">
+        {pct < 50 ? 'Alacsony' : pct < 75 ? 'Közepes' : 'Magas'} automatizálás
+      </div>
+    </div>
+  )
+}
+
+function CategoryTable({ rows, isLight }) {
+  if (!rows.length) {
+    return <div className="text-[12px] text-zinc-600 text-center py-4">Nincs adat a kiválasztott periódusra.</div>
+  }
+  return (
+    <div className="space-y-1">
+      {/* Fejléc */}
+      <div className="grid grid-cols-3 text-[9px] font-bold uppercase tracking-[.12em] text-zinc-600 pb-1 border-b border-white/7">
+        <span>Kategória</span>
+        <span className="text-right">Darab</span>
+        <span className="text-right">Átlag conf.</span>
+      </div>
+      {rows.map(r => (
+        <div key={r.category} className="grid grid-cols-3 text-[12px] py-1.5 border-b border-white/5 last:border-none items-center">
+          <span className={isLight ? 'text-slate-700' : 'text-zinc-300'}>
+            {CATEGORY_LABELS[r.category] || r.category}
+          </span>
+          <span className="text-right font-mono text-zinc-400">{r.count}</span>
+          <span className="text-right font-mono" style={{ color: confidenceColor(r.avg_confidence) }}>
+            {r.avg_confidence.toFixed(1)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function confidenceColor(pct) {
+  if (pct >= 80) return '#4ade80'
+  if (pct >= 60) return '#fbbf24'
+  return '#f87171'
+}
+
+// ── Napi bar chart (Chart.js nélkül, inline canvas) ───────────
+
+function DailyBarChart({ data, isLight }) {
+  const canvasRef = useRef(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !data.length) return
+    const ctx = canvas.getContext('2d')
+    const dpr = window.devicePixelRatio || 1
+
+    const W = canvas.clientWidth
+    const H = canvas.clientHeight
+    canvas.width  = W * dpr
+    canvas.height = H * dpr
+    ctx.scale(dpr, dpr)
+
+    ctx.clearRect(0, 0, W, H)
+
+    const pad   = { top: 8, right: 8, bottom: 28, left: 28 }
+    const chartW = W - pad.left - pad.right
+    const chartH = H - pad.top  - pad.bottom
+
+    const maxVal = Math.max(...data.map(d => (d.automated || 0) + (d.manual || 0)), 1)
+    const barGroup = chartW / data.length
+    const barW     = Math.max(4, barGroup * 0.35)
+    const gap      = barW * 0.3
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'
+    ctx.lineWidth   = 1
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + chartH - (i / 4) * chartH
+      ctx.beginPath()
+      ctx.moveTo(pad.left, y)
+      ctx.lineTo(pad.left + chartW, y)
+      ctx.stroke()
+      // Label
+      ctx.fillStyle  = 'rgba(255,255,255,0.25)'
+      ctx.font       = `${8 * dpr / dpr}px monospace`
+      ctx.textAlign  = 'right'
+      ctx.fillText(Math.round(maxVal * i / 4), pad.left - 4, y + 3)
+    }
+
+    // Bars
+    data.forEach((d, i) => {
+      const x       = pad.left + i * barGroup + (barGroup - barW * 2 - gap) / 2
+      const autoH   = chartH * ((d.automated || 0) / maxVal)
+      const manualH = chartH * ((d.manual    || 0) / maxVal)
+
+      // Automated bar (kék)
+      ctx.fillStyle = '#1a56db'
+      ctx.beginPath()
+      ctx.roundRect?.(x, pad.top + chartH - autoH, barW, autoH, [2, 2, 0, 0]) ||
+        ctx.rect(x, pad.top + chartH - autoH, barW, autoH)
+      ctx.fill()
+
+      // Manual bar (narancs)
+      ctx.fillStyle = '#ff7820'
+      ctx.beginPath()
+      ctx.roundRect?.(x + barW + gap, pad.top + chartH - manualH, barW, manualH, [2, 2, 0, 0]) ||
+        ctx.rect(x + barW + gap, pad.top + chartH - manualH, barW, manualH)
+      ctx.fill()
+
+      // X-axis label (dátum rövidítve)
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'
+      ctx.font      = `${8 * dpr / dpr}px monospace`
+      ctx.textAlign = 'center'
+      const label   = d.day ? d.day.slice(5) : ''  // "MM-DD"
+      ctx.fillText(label, x + barW + gap / 2, pad.top + chartH + 14)
+    })
+
+    // Jelmagyarázat
+    const legX = pad.left
+    const legY = H - 6
+    ;[['#1a56db', 'Automatizált'], ['#ff7820', 'Manuális']].forEach(([col, lbl], i) => {
+      const ox = legX + i * 110
+      ctx.fillStyle = col
+      ctx.fillRect(ox, legY - 5, 8, 5)
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'
+      ctx.font      = `${8 * dpr / dpr}px monospace`
+      ctx.textAlign = 'left'
+      ctx.fillText(lbl, ox + 10, legY)
+    })
+  }, [data, isLight])
+
+  if (!data.length) {
+    return (
+      <div className="flex items-center justify-center h-36 text-[12px] text-zinc-600">
+        Nincs napi adat a kiválasztott periódusra.
+      </div>
+    )
+  }
+
+  return <canvas ref={canvasRef} style={{ width: '100%', height: 160, display: 'block' }} />
 }

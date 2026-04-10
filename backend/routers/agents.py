@@ -189,3 +189,93 @@ async def toggle_agent(
     )
     log.info(f"Agent toggled: {agent_id} → is_active={new_state}")
     return {"id": agent_id, "is_active": new_state}
+
+
+@router.get("/performance")
+async def get_agent_performance(
+    days: int = 7,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Agent teljesítmény metrikák az emails tábla alapján.
+    Visszaad: automated_count, manual_count, automation_rate,
+              avg_confidence, time_saved_hours, top_categories, daily_trend.
+    """
+    tenant_id = current_user.get("tenant_id")
+
+    # Tenant szűrés feltétele
+    t_filter = "AND tenant_id=$2" if tenant_id else ""
+
+    # ── Fő metrikák ─────────────────────────────────────────────
+    stats_args = [days, tenant_id] if tenant_id else [days]
+    stats = await db.fetchrow(
+        f"""SELECT
+              COUNT(*) FILTER (WHERE status = 'AI_ANSWERED')          AS automated_count,
+              COUNT(*) FILTER (WHERE status = 'NEEDS_ATTENTION')      AS manual_count,
+              AVG(confidence) FILTER (WHERE status = 'AI_ANSWERED')   AS avg_conf_auto
+            FROM emails
+            WHERE created_at > NOW() - INTERVAL '{days} days'
+            {t_filter}""",
+        *stats_args
+    )
+
+    automated = int(stats["automated_count"] or 0)
+    manual    = int(stats["manual_count"]    or 0)
+    total     = automated + manual
+    automation_rate  = round(automated / total * 100, 1) if total else 0.0
+    avg_confidence   = round(float(stats["avg_conf_auto"] or 0) * 100, 1)
+    time_saved_hours = round(automated * 3 / 60, 1)
+
+    # ── Top kategóriák ───────────────────────────────────────────
+    cats_args = [days, tenant_id] if tenant_id else [days]
+    cats = await db.fetch(
+        f"""SELECT
+              COALESCE(category, 'other') AS category,
+              COUNT(*)                    AS cnt,
+              ROUND(AVG(confidence)*100::numeric, 1) AS avg_conf
+            FROM emails
+            WHERE status = 'AI_ANSWERED'
+              AND created_at > NOW() - INTERVAL '{days} days'
+              {t_filter}
+            GROUP BY category
+            ORDER BY cnt DESC
+            LIMIT 5""",
+        *cats_args
+    )
+
+    # ── Napi trend ───────────────────────────────────────────────
+    trend_args = [days, tenant_id] if tenant_id else [days]
+    trend = await db.fetch(
+        f"""SELECT
+              DATE(created_at)::text                                          AS day,
+              COUNT(*) FILTER (WHERE status = 'AI_ANSWERED')                  AS automated,
+              COUNT(*) FILTER (WHERE status = 'NEEDS_ATTENTION')              AS manual,
+              ROUND(AVG(confidence) FILTER (WHERE status='AI_ANSWERED')*100::numeric, 1) AS confidence
+            FROM emails
+            WHERE created_at > NOW() - INTERVAL '{days} days'
+              {t_filter}
+            GROUP BY day
+            ORDER BY day ASC""",
+        *trend_args
+    )
+
+    return {
+        "automated_count":  automated,
+        "manual_count":     manual,
+        "automation_rate":  automation_rate,
+        "avg_confidence":   avg_confidence,
+        "time_saved_hours": time_saved_hours,
+        "top_categories":   [
+            {"category": r["category"], "count": int(r["cnt"]), "avg_confidence": float(r["avg_conf"] or 0)}
+            for r in (cats or [])
+        ],
+        "daily_trend": [
+            {
+                "day":        r["day"],
+                "automated":  int(r["automated"]),
+                "manual":     int(r["manual"]),
+                "confidence": float(r["confidence"] or 0),
+            }
+            for r in (trend or [])
+        ],
+    }

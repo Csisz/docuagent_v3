@@ -10,6 +10,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 import db.queries as q
+import db.audit_queries as alog
 from models.schemas import StatusUpdateRequest, FeedbackRequest, EmailStatus
 from core.config import OPENAI_API_KEY, N8N_LABEL_WEBHOOK
 from core.security import require_api_key, get_current_user_optional, get_current_user
@@ -352,6 +353,11 @@ async def approve_email(
             log.warning(f"approve: n8n send webhook error: {e}")
 
     log.info(f"Approved email {email_id} via={sent_via} by={current_user.get('email')}")
+    await alog.insert_audit_log(
+        tenant_id=current_user.get("tenant_id"), user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="approve", entity_type="email",
+        entity_id=email_id, details={"subject": row["subject"], "sent_via": sent_via},
+    )
     return {"status": "ok", "email_id": email_id, "sent_via": sent_via}  # noqa: RET504
 
 
@@ -371,6 +377,11 @@ async def reject_email(
     await q.insert_feedback(email_id, row["status"], "CLOSED", note)
 
     log.info(f"Rejected email {email_id} by={current_user.get('email')} note={note[:60]!r}")
+    await alog.insert_audit_log(
+        tenant_id=current_user.get("tenant_id"), user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="reject", entity_type="email",
+        entity_id=email_id, details={"subject": row["subject"], "note": note[:200]},
+    )
     return {"status": "ok", "email_id": email_id, "new_status": "CLOSED"}
 
 
@@ -425,6 +436,11 @@ async def edit_and_approve(
             log.warning(f"edit-approve: n8n error: {e}")
 
     log.info(f"Edit-approved email {email_id} via={sent_via} by={current_user.get('email')}")
+    await alog.insert_audit_log(
+        tenant_id=current_user.get("tenant_id"), user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="edit_approve", entity_type="email",
+        entity_id=email_id, details={"subject": row["subject"], "sent_via": sent_via, "note": req.note or ""},
+    )
     return {"status": "ok", "email_id": email_id, "sent_via": sent_via}
 
 

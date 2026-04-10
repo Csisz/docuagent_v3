@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 
 import db.database as db
+import db.audit_queries as alog
 from core.security import get_current_user
 
 router        = APIRouter(prefix="/api/templates", tags=["Templates"])
@@ -83,6 +84,11 @@ async def apply_template(
         )
 
     log.info(f"Template applied: {row['name']} ({template_id}) by tenant={tenant_id}")
+    await alog.insert_audit_log(
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="apply_template", entity_type="template",
+        entity_id=template_id, details={"template_name": row["name"], "category": row["category"]},
+    )
     return {
         "status":      "ok",
         "template_id": template_id,

@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 import db.queries as q
+import db.audit_queries as alog
 from models.schemas import RagRequest
 from services import openai_service, qdrant_service, file_service
 from core.config import (
@@ -89,6 +90,11 @@ async def upload_doc(
     )
 
     log.info(f"Uploaded: {file.filename} ({size_kb}KB, lang={lang}, collection={collection}, qdrant={qdrant_ok})")
+    await alog.insert_audit_log(
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="upload", entity_type="document",
+        entity_id=doc_id, details={"filename": file.filename, "size_kb": size_kb, "lang": lang, "collection": collection},
+    )
     return {
         "status":     "ok",
         "id":         doc_id,
@@ -232,6 +238,11 @@ async def delete_document(
             pass
 
     log.info(f"Document deleted: {doc_id} filename={doc['filename']} vectors={deleted_vectors}")
+    await alog.insert_audit_log(
+        tenant_id=current_user.get("tenant_id"), user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="delete", entity_type="document",
+        entity_id=doc_id, details={"filename": doc["filename"], "vectors_removed": deleted_vectors},
+    )
     return {
         "status":          "ok",
         "deleted":         doc_id,

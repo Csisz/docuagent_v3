@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 import db.database as db
+import db.audit_queries as alog
 from core.security import get_current_user
 
 router = APIRouter(prefix="/api/agents", tags=["Agents"])
@@ -99,6 +100,12 @@ async def create_agent(
         req.is_active,
     )
     log.info(f"Agent created: {req.name} tenant={tenant_id}")
+    agent_id = str(row["id"])
+    await alog.insert_audit_log(
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="create", entity_type="agent",
+        entity_id=agent_id, details={"name": req.name, "trigger": req.trigger},
+    )
     return _serialize(row)
 
 
@@ -150,6 +157,11 @@ async def update_agent(
         agent_id, *values
     )
     log.info(f"Agent updated: {agent_id}")
+    await alog.insert_audit_log(
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="update", entity_type="agent",
+        entity_id=agent_id, details={"name": req.name or existing["name"], "fields": list(updates.keys())},
+    )
     return _serialize(row)
 
 
@@ -167,6 +179,11 @@ async def delete_agent(
         raise HTTPException(403, "Nincs jogosultság")
     await db.execute("DELETE FROM agent_configs WHERE id=$1", agent_id)
     log.info(f"Agent deleted: {agent_id}")
+    await alog.insert_audit_log(
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="delete", entity_type="agent",
+        entity_id=agent_id, details={"name": existing["name"]},
+    )
 
 
 @router.post("/{agent_id}/toggle")
@@ -188,6 +205,11 @@ async def toggle_agent(
         new_state, agent_id
     )
     log.info(f"Agent toggled: {agent_id} → is_active={new_state}")
+    await alog.insert_audit_log(
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="toggle", entity_type="agent",
+        entity_id=agent_id, details={"name": existing["name"], "is_active": new_state},
+    )
     return {"id": agent_id, "is_active": new_state}
 
 

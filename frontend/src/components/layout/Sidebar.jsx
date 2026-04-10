@@ -33,6 +33,7 @@ const NAV = [
       { to: '/reports',       label: 'Riportok',         icon: ReportsIcon },
       { to: '/calendar',      label: 'Naptár',           icon: CalendarIcon },
       { to: '/agents',        label: 'Agent Builder',    icon: AgentBuilderIcon },
+      { to: '/audit',         label: 'Audit Trail',      icon: AuditIcon },
     ]
   },
   {
@@ -295,4 +296,7 @@ function TemplateIcon({ className }) {
 }
 function AgentBuilderIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06"/></svg>
+}
+function AuditIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="1" width="12" height="12" rx="1.5"/><path d="M4 4h6M4 7h6M4 10h4"/></svg>
 }

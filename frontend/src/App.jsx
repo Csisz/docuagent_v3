@@ -14,6 +14,7 @@ import ApprovalPage   from './pages/ApprovalPage'
 import TemplatePage     from './pages/TemplatePage'
 import AgentBuilderPage from './pages/AgentBuilderPage'
 import AgentsPage       from './pages/AgentsPage'
+import AuditPage        from './pages/AuditPage'
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
               <Route path="/approval"  element={<ApprovalPage />} />
               <Route path="/templates"   element={<TemplatePage />} />
               <Route path="/agents"      element={<AgentsPage />} />
+              <Route path="/audit"       element={<AuditPage />} />
               <Route path="*"            element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

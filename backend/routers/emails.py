@@ -54,6 +54,55 @@ async def list_emails(
     }
 
 
+# ── Approval Inbox endpointok ─────────────────────────────────
+
+def _serialize_approval(row) -> dict:
+    import json as _json
+    d = {
+        "id":            str(row["id"]),
+        "subject":       row["subject"] or "",
+        "sender":        row["sender"] or "",
+        "body":          row["body"] or "",
+        "category":      row["category"] or "other",
+        "status":        row["status"],
+        "urgent":        row["urgent"],
+        "urgency_score": int(row["urgency_score"] or 0),
+        "confidence":    round(float(row["confidence"] or 0), 2),
+        "ai_response":   row["ai_response"],
+        "ai_decision":   row["ai_decision"],
+        "sentiment":     row["sentiment"] or "neutral",
+        "created_at":    row["created_at"].isoformat() if row["created_at"] else "",
+        "rag_sources":   [],
+        "rag_confidence": None,
+    }
+    # RAG forrás docs
+    src = row.get("source_docs")
+    if src:
+        try:
+            parsed = _json.loads(src) if isinstance(src, str) else src
+            d["rag_sources"] = parsed if isinstance(parsed, list) else []
+        except Exception:
+            pass
+    if row.get("rag_confidence") is not None:
+        d["rag_confidence"] = round(float(row["rag_confidence"]), 2)
+    return d
+
+
+@router.get("/emails/approval-queue")
+async def approval_queue(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """NEEDS_ATTENTION emailek confidence + RAG forrásokkal. Sürgőség szerint rendezve."""
+    tenant_id = current_user.get("tenant_id")
+    rows = await q.get_approval_queue(tenant_id, limit)
+    count = await q.get_approval_queue_count(tenant_id)
+    return {
+        "emails": [_serialize_approval(r) for r in (rows or [])],
+        "total":  count,
+    }
+
+
 @router.get("/emails/{email_id}")
 async def get_email(
     email_id: str,
@@ -238,55 +287,6 @@ async def ingest_email(request: Request):
         "classified_status": status,
         "confidence":        confidence,
         "learned_override":  learned,
-    }
-
-
-# ── Approval Inbox endpointok ─────────────────────────────────
-
-def _serialize_approval(row) -> dict:
-    import json as _json
-    d = {
-        "id":            str(row["id"]),
-        "subject":       row["subject"] or "",
-        "sender":        row["sender"] or "",
-        "body":          row["body"] or "",
-        "category":      row["category"] or "other",
-        "status":        row["status"],
-        "urgent":        row["urgent"],
-        "urgency_score": int(row["urgency_score"] or 0),
-        "confidence":    round(float(row["confidence"] or 0), 2),
-        "ai_response":   row["ai_response"],
-        "ai_decision":   row["ai_decision"],
-        "sentiment":     row["sentiment"] or "neutral",
-        "created_at":    row["created_at"].isoformat() if row["created_at"] else "",
-        "rag_sources":   [],
-        "rag_confidence": None,
-    }
-    # RAG forrás docs
-    src = row.get("source_docs")
-    if src:
-        try:
-            parsed = _json.loads(src) if isinstance(src, str) else src
-            d["rag_sources"] = parsed if isinstance(parsed, list) else []
-        except Exception:
-            pass
-    if row.get("rag_confidence") is not None:
-        d["rag_confidence"] = round(float(row["rag_confidence"]), 2)
-    return d
-
-
-@router.get("/emails/approval-queue")
-async def approval_queue(
-    limit: int = 50,
-    current_user: dict = Depends(get_current_user)
-):
-    """NEEDS_ATTENTION emailek confidence + RAG forrásokkal. Sürgőség szerint rendezve."""
-    tenant_id = current_user.get("tenant_id")
-    rows = await q.get_approval_queue(tenant_id, limit)
-    count = await q.get_approval_queue_count(tenant_id)
-    return {
-        "emails": [_serialize_approval(r) for r in (rows or [])],
-        "total":  count,
     }
 
 

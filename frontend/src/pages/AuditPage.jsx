@@ -177,8 +177,8 @@ export default function AuditPage() {
   const MUTED  = '#64748b'
 
   const inputStyle = {
-    background: 'rgba(255,255,255,0.04)', border: `1px solid ${BORDER}`,
-    color: TEXT, borderRadius: 7, padding: '0.45rem 0.75rem',
+    background: '#0f172a', border: `1px solid ${BORDER}`,
+    color: '#e2e8f0', borderRadius: 7, padding: '0.45rem 0.75rem',
     fontSize: 12, outline: 'none',
   }
 

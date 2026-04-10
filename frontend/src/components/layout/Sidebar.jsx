@@ -29,9 +29,10 @@ const NAV = [
   {
     section: 'Analitika',
     items: [
-      { to: '/insights',  label: 'AI Insights',      icon: ChartIcon },
-      { to: '/reports',   label: 'Riportok',         icon: ReportsIcon },
-      { to: '/calendar',  label: 'Naptár',           icon: CalendarIcon },
+      { to: '/insights',      label: 'AI Insights',      icon: ChartIcon },
+      { to: '/reports',       label: 'Riportok',         icon: ReportsIcon },
+      { to: '/calendar',      label: 'Naptár',           icon: CalendarIcon },
+      { to: '/agents',        label: 'Agent Builder',    icon: AgentBuilderIcon },
     ]
   },
   {
@@ -291,4 +292,7 @@ function ApprovalIcon({ className }) {
 }
 function TemplateIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="1" width="12" height="4" rx="1"/><rect x="1" y="7" width="5" height="6" rx="1"/><rect x="8" y="7" width="5" height="3" rx="1"/></svg>
+}
+function AgentBuilderIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="7" cy="7" r="2.5"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06"/></svg>
 }

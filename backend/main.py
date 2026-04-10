@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse
 
 from core.config import PORT, ALLOWED_ORIGINS, UPLOAD_DIR
 import db.database as database
-from routers import auth, classify, emails, documents, dashboard, sla, chat, calendar, onboarding, templates, demo
+from routers import auth, classify, emails, documents, dashboard, sla, chat, calendar, onboarding, templates, demo, agents
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +63,7 @@ app.include_router(calendar.router)
 app.include_router(onboarding.router)
 app.include_router(templates.router)
 app.include_router(templates.config_router)
+app.include_router(agents.router)
 app.include_router(demo.router)
 
 

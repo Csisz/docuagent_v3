@@ -11,7 +11,9 @@ import ReportsPage   from './pages/ReportsPage'
 import CalendarPage  from './pages/CalendarPage'
 import OnboardingPage  from './pages/OnboardingPage'
 import ApprovalPage   from './pages/ApprovalPage'
-import TemplatePage   from './pages/TemplatePage'
+import TemplatePage     from './pages/TemplatePage'
+import AgentBuilderPage from './pages/AgentBuilderPage'
+import AgentsPage       from './pages/AgentsPage'
 
 export default function App() {
   return (
@@ -20,7 +22,9 @@ export default function App() {
         <ProtectedRoute>
           <Routes>
             {/* Onboarding — nincs sidebar, teljes képernyő */}
-            <Route path="/onboarding" element={<OnboardingPage />} />
+            <Route path="/onboarding"          element={<OnboardingPage />} />
+            <Route path="/agent-builder"       element={<AgentBuilderPage />} />
+            <Route path="/agent-builder/:id"   element={<AgentBuilderPage />} />
 
             {/* Főalkalmazás — Layout-tal (sidebar + topbar) */}
             <Route element={<Layout />}>
@@ -33,8 +37,9 @@ export default function App() {
               <Route path="/chat"      element={<ChatPage />} />
               <Route path="/calendar"  element={<CalendarPage />} />
               <Route path="/approval"  element={<ApprovalPage />} />
-              <Route path="/templates" element={<TemplatePage />} />
-              <Route path="*"          element={<Navigate to="/" replace />} />
+              <Route path="/templates"   element={<TemplatePage />} />
+              <Route path="/agents"      element={<AgentsPage />} />
+              <Route path="*"            element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
 

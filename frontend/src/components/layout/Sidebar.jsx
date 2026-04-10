@@ -16,7 +16,6 @@ const NAV = [
     section: 'Emailek',
     items: [
       { to: '/emails',    label: 'Összes email',     icon: MailIcon,       badge: 'nb-total' },
-      { to: '/attention', label: 'Figyelmet igényel', icon: AlertIcon,     badge: 'nb-att' },
       { to: '/approval',  label: 'Jóváhagyásra vár', icon: ApprovalIcon,  badge: 'nb-att' },
     ]
   },
@@ -269,9 +268,6 @@ function GridIcon({ className }) {
 }
 function MailIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="2" width="12" height="10" rx="1.2"/><path d="M1 5h12M5 2v3"/></svg>
-}
-function AlertIcon({ className }) {
-  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3M7 9.5v.5"/></svg>
 }
 function DocIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 2h6l3 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M9 2v3h3"/></svg>

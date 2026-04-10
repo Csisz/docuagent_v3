@@ -31,8 +31,7 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/"          element={<DashboardPage />} />
               <Route path="/emails"    element={<EmailsPage />} />
-              <Route path="/attention" element={<EmailsPage defaultFilter="NEEDS_ATTENTION" />} />
-              <Route path="/docs"      element={<DocsPage />} />
+<Route path="/docs"      element={<DocsPage />} />
               <Route path="/insights"  element={<InsightsPage />} />
               <Route path="/reports"   element={<ReportsPage />} />
               <Route path="/chat"      element={<ChatPage />} />

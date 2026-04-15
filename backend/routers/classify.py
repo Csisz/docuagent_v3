@@ -123,7 +123,7 @@ async def classify_email(req: ClassifyRequest):
         raw    = await openai_service.chat(
             [{"role": "system", "content": sys_prompt},
              {"role": "user",   "content": f"Subject: {req.subject}\n\n{req.body[:3000]}"}],
-            max_tokens=300, json_mode=True
+            max_tokens=300, json_mode=True, task_type="classify",
         )
         p      = json.loads(raw)
         can    = bool(p.get("can_answer", False))
@@ -185,7 +185,7 @@ async def generate_reply(req: ReplyRequest):
                  f"Tárgy: {req.subject}\n\n"
                  f"{req.body[:3000]}"
              )}],
-            max_tokens=600
+            max_tokens=600, task_type="reply",
         )
     except Exception as e:
         from fastapi import HTTPException

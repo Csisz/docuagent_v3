@@ -106,6 +106,12 @@ export default function ApprovalPage() {
   const [editMode, setEditMode] = useState(false)
   const [acting,   setActing]   = useState(false)  // action in flight
 
+  // CRM case link modal
+  const [showLinkModal, setShowLinkModal]   = useState(false)
+  const [linkCases,     setLinkCases]       = useState([])
+  const [linkCaseId,    setLinkCaseId]      = useState('')
+  const [linking,       setLinking]         = useState(false)
+
   const isDark = theme !== 'light'
   const bg     = isDark ? '#050d18'           : '#f8fafc'
   const card   = isDark ? '#0d1b2e'           : 'white'
@@ -186,6 +192,31 @@ export default function ApprovalPage() {
     } catch (e) {
       toast(e.message || 'Elutasítás sikertelen', 'err')
       setActing(false)
+    }
+  }
+
+  async function openLinkModal() {
+    setLinkCaseId('')
+    try {
+      const res = await api.crmCases()
+      setLinkCases(res.cases || [])
+    } catch {
+      setLinkCases([])
+    }
+    setShowLinkModal(true)
+  }
+
+  async function handleLinkToCase() {
+    if (!selected || !linkCaseId) return
+    setLinking(true)
+    try {
+      await api.crmLinkEmail(linkCaseId, selected.id)
+      toast('Email hozzárendelve az ügyhez ✓', 'ok')
+      setShowLinkModal(false)
+    } catch (e) {
+      toast(e.message || 'Hozzárendelés sikertelen', 'err')
+    } finally {
+      setLinking(false)
     }
   }
 
@@ -474,6 +505,21 @@ export default function ApprovalPage() {
               >
                 ✕ Elutasítás
               </button>
+
+              {/* Ügyhez rendelés */}
+              <button
+                onClick={openLinkModal}
+                disabled={acting}
+                style={{
+                  flex: 1, minWidth: 100, padding: '0.625rem 1rem',
+                  borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  background: 'rgba(124,58,237,0.1)',
+                  color: '#a78bfa', border: '1px solid rgba(124,58,237,0.3)',
+                  opacity: acting ? 0.5 : 1,
+                }}
+              >
+                + Ügyhez
+              </button>
             </div>
           </div>
         )}
@@ -491,6 +537,53 @@ export default function ApprovalPage() {
           </div>
         )}
       </div>
+
+      {/* ── CRM case link modal ── */}
+      {showLinkModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setShowLinkModal(false)}
+        >
+          <div
+            style={{ background: isDark ? '#0f172a' : '#fff', border: `1px solid ${border}`, borderRadius: 14, padding: 24, width: 420, maxWidth: '92vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, color: text }}>Email hozzárendelése ügyhez</div>
+              <button onClick={() => setShowLinkModal(false)} style={{ color: muted, background: 'none', border: 'none', fontSize: 18, cursor: 'pointer' }}>✕</button>
+            </div>
+            {linkCases.length === 0 ? (
+              <div style={{ fontSize: 13, color: muted, marginBottom: 16 }}>Nincs meglévő ügy. Hozz létre egyet a CRM oldalon.</div>
+            ) : (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 11, color: muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Válassz ügyet</label>
+                <select
+                  value={linkCaseId}
+                  onChange={e => setLinkCaseId(e.target.value)}
+                  style={{ width: '100%', background: isDark ? 'rgba(255,255,255,.06)' : '#f8fafc', border: `1px solid ${border}`, borderRadius: 8, color: text, padding: '8px 12px', fontSize: 13, outline: 'none' }}
+                >
+                  <option value="">— válassz ügyet —</option>
+                  {linkCases.map(c => (
+                    <option key={c.id} value={c.id}>{c.title} ({c.status})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowLinkModal(false)} style={{ padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer', background: 'none', color: muted, border: `1px solid ${border}` }}>
+                Mégse
+              </button>
+              <button
+                onClick={handleLinkToCase}
+                disabled={!linkCaseId || linking}
+                style={{ padding: '8px 18px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', background: '#7c3aed', color: '#fff', border: 'none', opacity: (!linkCaseId || linking) ? 0.5 : 1 }}
+              >
+                {linking ? 'Mentés...' : 'Hozzárendelés'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

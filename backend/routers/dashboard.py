@@ -146,7 +146,7 @@ async def ai_insights(_auth=Security(require_api_key)):
     )
     try:
         raw  = await openai_service.chat([{"role": "user", "content": prompt}],
-                                          max_tokens=400, json_mode=True)
+                                          max_tokens=400, json_mode=True, task_type="insights")
         data = json.loads(raw)
         return {"ai": data, "generated_at": datetime.now(timezone.utc).isoformat()}
     except Exception as e:

@@ -17,8 +17,10 @@ export default function InsightsPage() {
   const [kpis,  setKpis]  = useState(null)
   const [ai,    setAi]    = useState(null)
   const [perf,  setPerf]  = useState(null)
+  const [gw,    setGw]    = useState(null)
   const [loading,      setLoading]      = useState(false)
   const [perfLoading,  setPerfLoading]  = useState(false)
+  const [gwLoading,    setGwLoading]    = useState(false)
   const [days,  setDays]  = useState(7)
 
   useEffect(() => {
@@ -28,6 +30,7 @@ export default function InsightsPage() {
 
   useEffect(() => {
     loadPerf()
+    loadGateway()
   }, [days]) // eslint-disable-line
 
   async function loadAI() {
@@ -51,6 +54,18 @@ export default function InsightsPage() {
       setPerf(null)
     } finally {
       setPerfLoading(false)
+    }
+  }
+
+  async function loadGateway() {
+    setGwLoading(true)
+    try {
+      const d = await api.gatewayStats(days)
+      setGw(d)
+    } catch {
+      setGw(null)
+    } finally {
+      setGwLoading(false)
     }
   }
 
@@ -80,6 +95,68 @@ export default function InsightsPage() {
           <AIBlock label="Azonosított problémák" color="red"   items={ai?.problems}       loading={loading} isLight={isLight} />
           <AIBlock label="Észlelt trendek"       color="amber" items={ai?.trends}          loading={loading} isLight={isLight} />
           <AIBlock label="Ajánlott teendők"      color="green" items={ai?.recommendations} loading={loading} isLight={isLight} />
+        </div>
+      </div>
+
+      {/* ── AI Gateway szekció ───────────────────────────────── */}
+      <div className="glass-card">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h3 className="text-[13px] font-semibold text-white">AI Gateway</h3>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              A rendszer automatikusan a legolcsóbb modellt választja feladattípus szerint
+            </p>
+          </div>
+          <button className="btn-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5" onClick={loadGateway}>
+            <span className={gwLoading ? 'animate-spin-slow inline-block' : ''}>↻</span>
+          </button>
+        </div>
+
+        {/* 3 metrika kártya */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+          <PerfCard
+            icon="⚡"
+            label="GPT-4o-mini hívások"
+            value={gwLoading ? null : (gw?.mini_calls ?? 0)}
+            sub="gyors · olcsó"
+            color="#60a5fa"
+          />
+          <PerfCard
+            icon="🧠"
+            label="GPT-4o hívások"
+            value={gwLoading ? null : (gw?.smart_calls ?? 0)}
+            sub="okos · insights + fontos válaszok"
+            color="#a78bfa"
+          />
+          <PerfCard
+            icon="💰"
+            label="Becsült költség"
+            value={gwLoading ? null : (gw?.estimated_cost_usd != null ? `$${gw.estimated_cost_usd.toFixed(4)}` : '$0.0000')}
+            sub={`utolsó ${days} nap`}
+            color="#4ade80"
+          />
+        </div>
+
+        {/* Pie chart + task-type breakdown */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className={clsx('rounded-lg p-4', isLight ? 'bg-slate-50 border border-slate-200' : 'bg-white/[.02] border border-white/7')}>
+            <div className="text-[10px] font-bold uppercase tracking-[.12em] text-zinc-500 mb-3">
+              Mini vs Smart arány
+            </div>
+            {gwLoading
+              ? <Skeleton className="h-36 w-full" />
+              : <GatewayPieChart mini={gw?.mini_calls || 0} smart={gw?.smart_calls || 0} />
+            }
+          </div>
+          <div className={clsx('rounded-lg p-4', isLight ? 'bg-slate-50 border border-slate-200' : 'bg-white/[.02] border border-white/7')}>
+            <div className="text-[10px] font-bold uppercase tracking-[.12em] text-zinc-500 mb-3">
+              Feladattípusonként
+            </div>
+            {gwLoading
+              ? <><Skeleton className="h-5 mb-2" /><Skeleton className="h-5 mb-2" /><Skeleton className="h-5 w-3/4" /></>
+              : <TaskBreakdown rows={gw?.by_task || []} total={gw?.total_calls || 0} isLight={isLight} />
+            }
+          </div>
         </div>
       </div>
 
@@ -383,4 +460,136 @@ function DailyBarChart({ data, isLight }) {
   }
 
   return <canvas ref={canvasRef} style={{ width: '100%', height: 160, display: 'block' }} />
+}
+
+// ── AI Gateway komponensek ─────────────────────────────────────
+
+function GatewayPieChart({ mini, smart }) {
+  const canvasRef = useRef(null)
+  const total = mini + smart
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const dpr = window.devicePixelRatio || 1
+    const W = canvas.clientWidth
+    const H = canvas.clientHeight
+    canvas.width  = W * dpr
+    canvas.height = H * dpr
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, W, H)
+
+    const cx = W / 2
+    const cy = H / 2
+    const r  = Math.min(cx, cy) - 20
+
+    if (total === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.15)'
+      ctx.beginPath()
+      ctx.arc(cx, cy, r, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'
+      ctx.font = '11px Inter, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('Nincs adat', cx, cy + 4)
+      return
+    }
+
+    const miniAngle  = (mini  / total) * Math.PI * 2
+    const smartAngle = (smart / total) * Math.PI * 2
+    const start = -Math.PI / 2
+
+    // Mini slice (kék)
+    ctx.fillStyle = '#3b82f6'
+    ctx.beginPath()
+    ctx.moveTo(cx, cy)
+    ctx.arc(cx, cy, r, start, start + miniAngle)
+    ctx.closePath()
+    ctx.fill()
+
+    // Smart slice (lila)
+    ctx.fillStyle = '#7c3aed'
+    ctx.beginPath()
+    ctx.moveTo(cx, cy)
+    ctx.arc(cx, cy, r, start + miniAngle, start + miniAngle + smartAngle)
+    ctx.closePath()
+    ctx.fill()
+
+    // Donut hole
+    ctx.fillStyle = '#0a1628'
+    ctx.beginPath()
+    ctx.arc(cx, cy, r * 0.55, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Center text
+    ctx.fillStyle = '#f1f5f9'
+    ctx.font = `bold ${14 * dpr / dpr}px Inter, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.fillText(total, cx, cy + 2)
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'
+    ctx.font = `${9 * dpr / dpr}px monospace`
+    ctx.fillText('TOTAL', cx, cy + 14)
+
+    // Legend
+    const legY = H - 8
+    ;[['#3b82f6', `Mini: ${mini} (${total ? Math.round(mini/total*100) : 0}%)`],
+      ['#7c3aed', `Smart: ${smart} (${total ? Math.round(smart/total*100) : 0}%)`]
+    ].forEach(([col, lbl], i) => {
+      const ox = (i === 0 ? W * 0.15 : W * 0.55)
+      ctx.fillStyle = col
+      ctx.fillRect(ox, legY - 6, 8, 6)
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'
+      ctx.font = `${9 * dpr / dpr}px monospace`
+      ctx.textAlign = 'left'
+      ctx.fillText(lbl, ox + 11, legY)
+    })
+  }, [mini, smart, total])
+
+  return <canvas ref={canvasRef} style={{ width: '100%', height: 150, display: 'block' }} />
+}
+
+const TASK_LABELS = {
+  classify:  'Osztályozás',
+  reply:     'Válaszgenerálás',
+  insights:  'AI Insights',
+  summarize: 'Összefoglalás',
+  general:   'Általános',
+}
+
+const TASK_COLORS = {
+  classify:  '#60a5fa',
+  reply:     '#4ade80',
+  insights:  '#a78bfa',
+  summarize: '#fbbf24',
+  general:   '#94a3b8',
+}
+
+function TaskBreakdown({ rows, total, isLight }) {
+  if (!rows.length) {
+    return <div className="text-[12px] text-zinc-600 text-center py-6">Nincs adat a kiválasztott periódusra.</div>
+  }
+  return (
+    <div className="space-y-2.5">
+      {rows.map(r => {
+        const pct   = total > 0 ? Math.round(r.calls / total * 100) : 0
+        const color = TASK_COLORS[r.task_type] || '#94a3b8'
+        const label = TASK_LABELS[r.task_type] || r.task_type
+        return (
+          <div key={r.task_type}>
+            <div className="flex justify-between text-[11px] mb-1">
+              <span className={isLight ? 'text-slate-700' : 'text-zinc-300'}>{label}</span>
+              <span className="font-mono text-zinc-500">{r.calls} ({pct}%)</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${pct}%`, background: color }}
+              />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }

@@ -15,6 +15,8 @@ import TemplatePage     from './pages/TemplatePage'
 import AgentBuilderPage from './pages/AgentBuilderPage'
 import AgentsPage       from './pages/AgentsPage'
 import AuditPage        from './pages/AuditPage'
+import CrmPage            from './pages/CrmPage'
+import IntegrationsPage   from './pages/IntegrationsPage'
 
 export default function App() {
   return (
@@ -40,6 +42,8 @@ export default function App() {
               <Route path="/templates"   element={<TemplatePage />} />
               <Route path="/agents"      element={<AgentsPage />} />
               <Route path="/audit"       element={<AuditPage />} />
+              <Route path="/crm"             element={<CrmPage />} />
+              <Route path="/integrations"   element={<IntegrationsPage />} />
               <Route path="*"            element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

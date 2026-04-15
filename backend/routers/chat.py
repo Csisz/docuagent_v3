@@ -4,11 +4,16 @@ Két mód:
   - /api/chat/*        → belső, JWT auth szükséges
   - /api/widget/chat/* → publikus embed widget, tenant_slug alapján
 """
+import re
 import time
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
+)
 
 from core.security import get_current_user
 from core.config import OPENAI_API_KEY, COMPANY_NAME, RAG_FALLBACK_THRESHOLD
@@ -200,6 +205,9 @@ async def widget_chat_message(req: WidgetChatRequest):
     tenant_id = str(tenant["id"])
 
     session_id = req.session_id
+    # Treat non-UUID session_id values as missing to avoid DB cast errors
+    if session_id and not _UUID_RE.match(session_id):
+        session_id = None
     if not session_id:
         session = await q.create_chat_session(tenant_id, None)
         session_id = str(session["id"])
@@ -207,7 +215,8 @@ async def widget_chat_message(req: WidgetChatRequest):
     else:
         session = await q.get_chat_session(session_id)
         if not session:
-            raise HTTPException(404, "Session nem található")
+            session = await q.create_chat_session(tenant_id, None)
+            session_id = str(session["id"])
         is_new_session = False
 
     await q.insert_chat_message(session_id, "user", req.question)
@@ -287,3 +296,68 @@ async def widget_get_messages(session_id: str):
     """Widget előzmények lekérése session_id alapján."""
     history = await q.get_chat_history(session_id, limit=50)
     return {"messages": [dict(m) for m in reversed(list(history))]}
+
+
+# ── Widget POST /api/widget/chat  (rövidített alias, message mező) ──
+
+class WidgetChatShortRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    tenant_slug: str
+
+
+@widget_router.post("")
+async def widget_chat_short(req: WidgetChatShortRequest):
+    """
+    Rövid alias: POST /api/widget/chat
+    Input: {message, session_id, tenant_slug}
+    Átmappeli a meglévő widget_chat_message logikára.
+    """
+    return await widget_chat_message(
+        WidgetChatRequest(
+            question=req.message,
+            session_id=req.session_id,
+            tenant_slug=req.tenant_slug,
+        )
+    )
+
+
+# ── Widget config (publikus) ──────────────────────────────────
+
+_widget_config_router = APIRouter(prefix="/api/widget/config", tags=["Chat Widget"])
+
+
+@_widget_config_router.get("/{tenant_slug}")
+async def widget_config(tenant_slug: str):
+    """
+    Publikus widget konfig lekérése tenant slug alapján.
+    Visszaad: company_name, welcome_message, primary_color, logo_url
+    """
+    import db.database as _db
+    import uuid as _uuid
+
+    tenant = await aq.get_tenant_by_slug(tenant_slug)
+    if not tenant or not tenant["is_active"]:
+        raise HTTPException(404, "Tenant not found")
+
+    tid = tenant["id"]
+
+    async def _cfg(key: str, default: str = "") -> str:
+        row = await _db.fetchrow(
+            "SELECT value FROM config WHERE key=$1 AND tenant_id=$2", key, tid
+        )
+        if row:
+            return row["value"]
+        # global fallback (tenant_id IS NULL)
+        row2 = await _db.fetchrow(
+            "SELECT value FROM config WHERE key=$1 AND tenant_id IS NULL", key
+        )
+        return row2["value"] if row2 else default
+
+    return {
+        "company_name":     await _cfg("widget.company_name",     tenant["name"]),
+        "welcome_message":  await _cfg("widget.welcome_message",  "Szia! Miben segíthetek?"),
+        "primary_color":    await _cfg("widget.primary_color",    "#1a56db"),
+        "logo_url":         await _cfg("widget.logo_url",         ""),
+        "tenant_slug":      tenant_slug,
+    }

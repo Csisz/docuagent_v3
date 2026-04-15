@@ -96,6 +96,56 @@ export const api = {
   applyTemplate:  (id)       => req(`/api/templates/${id}/apply`, { method: 'POST' }),
   demoReset:      ()         => req('/api/demo/reset', { method: 'POST' }),
 
+  // ── AI Gateway ────────────────────────────────────────────
+  gatewayStats: (days = 7) => req(`/api/gateway/stats?days=${days}`),
+
+  // ── Integrations ──────────────────────────────────────────
+  integrationsStatus: () => req('/api/integrations/status'),
+  saveOutlookConfig: (data) =>
+    req('/api/integrations/outlook/config', { method: 'POST', body: JSON.stringify(data) }),
+  saveWidgetConfig: (data) =>
+    req('/api/integrations/widget/config', { method: 'POST', body: JSON.stringify(data) }),
+  calendarTriggerSync: () =>
+    req('/api/calendar/trigger-sync', { method: 'POST' }),
+
+  // ── CRM ───────────────────────────────────────────────────
+  crmContacts: (search = '', limit = 50, offset = 0) => {
+    const q = new URLSearchParams({ limit, offset, ...(search && { search }) })
+    return req(`/api/crm/contacts?${q}`)
+  },
+  crmCreateContact: (data) =>
+    req('/api/crm/contacts', { method: 'POST', body: JSON.stringify(data) }),
+  crmGetContact: (id) => req(`/api/crm/contacts/${id}`),
+  crmUpdateContact: (id, data) =>
+    req(`/api/crm/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  crmDeleteContact: (id) =>
+    req(`/api/crm/contacts/${id}`, { method: 'DELETE' }),
+
+  crmImportFromEmails: () =>
+    req('/api/crm/contacts/import-from-emails', { method: 'POST' }),
+
+  crmCases: (params = {}) => {
+    const q = new URLSearchParams({ limit: 50, ...params })
+    return req(`/api/crm/cases?${q}`)
+  },
+  crmCreateCase: (data) =>
+    req('/api/crm/cases', { method: 'POST', body: JSON.stringify(data) }),
+  crmGetCase: (id) => req(`/api/crm/cases/${id}`),
+  crmUpdateCase: (id, data) =>
+    req(`/api/crm/cases/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  crmLinkEmail: (caseId, emailId) =>
+    req(`/api/crm/cases/${caseId}/link-email`, { method: 'POST', body: JSON.stringify({ email_id: emailId }) }),
+
+  crmTasks: (completed) => {
+    const q = new URLSearchParams()
+    if (completed !== undefined) q.set('completed', completed)
+    return req(`/api/crm/tasks?${q}`)
+  },
+  crmCreateTask: (data) =>
+    req('/api/crm/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  crmCompleteTask: (id) =>
+    req(`/api/crm/tasks/${id}/complete`, { method: 'PATCH' }),
+
   calendarEvents: (from, to) => {
     const q = new URLSearchParams()
     if (from) q.set('from_date', from)

@@ -253,6 +253,13 @@ async def ingest_email(request: Request):
         log.error(f"Insert error: {e}")
         return {"status": "error", "detail": str(e)}
 
+    # CRM: auto contact upsert a feladó alapján
+    try:
+        from routers.crm import upsert_contact_from_sender
+        await upsert_contact_from_sender(tenant_id, sender)
+    except Exception as crm_err:
+        log.debug(f"CRM auto-contact skipped: {crm_err}")
+
     status = "NEW"; confidence = 0.0; learned = False
 
     if OPENAI_API_KEY:

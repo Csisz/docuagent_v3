@@ -23,6 +23,7 @@ const NAV = [
     section: 'Tartalom',
     items: [
       { to: '/docs',      label: 'Dokumentumok',     icon: DocIcon },
+      { to: '/crm',       label: 'CRM',              icon: CrmIcon },
     ]
   },
   {
@@ -40,6 +41,12 @@ const NAV = [
     items: [
       { to: '/chat',      label: 'Chat',              icon: ChatIcon },
       { to: '/templates', label: 'Sablonok',          icon: TemplateIcon },
+    ]
+  },
+  {
+    section: 'Beállítások',
+    items: [
+      { to: '/integrations', label: 'Integrációk',   icon: IntegrationsIcon },
     ]
   },
 ]
@@ -295,4 +302,10 @@ function AgentBuilderIcon({ className }) {
 }
 function AuditIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="1" width="12" height="12" rx="1.5"/><path d="M4 4h6M4 7h6M4 10h4"/></svg>
+}
+function CrmIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="5" cy="4" r="2"/><circle cx="10" cy="4" r="1.5"/><path d="M1 11c0-2.2 1.8-4 4-4s4 1.8 4 4"/><path d="M10 7c1.7 0 3 1.2 3 2.8"/></svg>
+}
+function IntegrationsIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="3" cy="7" r="2"/><circle cx="11" cy="3" r="2"/><circle cx="11" cy="11" r="2"/><path d="M5 7h3M9 4.5L5.5 6.5M9 9.5L5.5 7.5"/></svg>
 }

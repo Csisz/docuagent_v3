@@ -5,277 +5,437 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DocuAgent Chat Widget</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: transparent;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  #chat-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    background: white;
-    border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
-  }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: transparent;
+}
 
-  #chat-header {
-    padding: 0.875rem 1rem;
-    background: #2563eb;
-    color: white;
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-  }
+/* ── Bubble gomb ─────────────────────────────────────────── */
+#da-bubble {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--primary, #1a56db);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 24px;
+  z-index: 9998;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+  line-height: 1;
+}
+#da-bubble:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(0,0,0,0.3); }
 
-  #chat-header .avatar {
-    width: 32px; height: 32px;
-    background: rgba(255,255,255,0.25);
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1rem;
-  }
+/* ── Chat ablak ──────────────────────────────────────────── */
+#da-window {
+  position: fixed;
+  bottom: 92px;
+  right: 24px;
+  width: 360px;
+  height: 520px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 48px rgba(0,0,0,0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 9999;
+  transform: translateY(16px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+#da-window.open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: all;
+}
 
-  #chat-header .info { flex: 1; }
-  #chat-header .name { font-weight: 600; font-size: 0.875rem; }
-  #chat-header .status { font-size: 0.75rem; opacity: 0.85; }
+/* ── Fejléc ──────────────────────────────────────────────── */
+#da-header {
+  padding: 14px 16px;
+  background: var(--primary, #1a56db);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+#da-logo {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+#da-logo img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+#da-header-info { flex: 1; min-width: 0; }
+#da-company { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#da-status { font-size: 11px; opacity: 0.8; margin-top: 1px; display: flex; align-items: center; gap: 4px; }
+#da-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #4ade80; display: inline-block; }
+#da-close {
+  background: none; border: none; color: rgba(255,255,255,0.7);
+  font-size: 20px; cursor: pointer; padding: 0; line-height: 1;
+  flex-shrink: 0;
+}
+#da-close:hover { color: #fff; }
 
-  #messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
+/* ── Üzenetek ────────────────────────────────────────────── */
+#da-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-behavior: smooth;
+}
+#da-messages::-webkit-scrollbar { width: 4px; }
+#da-messages::-webkit-scrollbar-track { background: transparent; }
+#da-messages::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 2px; }
 
-  .msg {
-    display: flex;
-    flex-direction: column;
-    max-width: 85%;
-  }
-  .msg.user { align-self: flex-end; align-items: flex-end; }
-  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+#da-welcome {
+  text-align: center;
+  padding: 24px 12px;
+  color: #888;
+}
+#da-welcome .icon { font-size: 32px; margin-bottom: 8px; }
+#da-welcome p { font-size: 13px; line-height: 1.6; }
 
-  .bubble {
-    padding: 0.625rem 0.875rem;
-    border-radius: 14px;
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    word-break: break-word;
-    white-space: pre-wrap;
-  }
-  .msg.user .bubble {
-    background: #2563eb;
-    color: white;
-    border-radius: 14px 14px 2px 14px;
-  }
-  .msg.assistant .bubble {
-    background: #f4f4f5;
-    color: #1a1a1a;
-    border-radius: 14px 14px 14px 2px;
-  }
+/* ── Buborékok ───────────────────────────────────────────── */
+.da-msg { display: flex; flex-direction: column; max-width: 88%; }
+.da-msg.user { align-self: flex-end; align-items: flex-end; }
+.da-msg.bot  { align-self: flex-start; align-items: flex-start; }
 
-  .sources {
-    display: flex; gap: 0.25rem; flex-wrap: wrap; margin-top: 0.25rem;
-  }
-  .source-badge {
-    font-size: 0.65rem; padding: 0.1rem 0.4rem;
-    background: #eff6ff; color: #3b5bdb;
-    border-radius: 999px; border: 1px solid #c5d0fa;
-  }
+.da-bubble {
+  padding: 9px 13px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.da-msg.user .da-bubble {
+  background: var(--primary, #1a56db);
+  color: #fff;
+  border-radius: 16px 16px 3px 16px;
+}
+.da-msg.bot .da-bubble {
+  background: #f1f5f9;
+  color: #1a1a2e;
+  border-radius: 16px 16px 16px 3px;
+}
 
-  #typing {
-    display: none;
-    align-self: flex-start;
-  }
-  #typing .bubble {
-    background: #f4f4f5;
-    border-radius: 14px 14px 14px 2px;
-  }
-  .dot {
-    display: inline-block;
-    width: 6px; height: 6px;
-    background: #888;
-    border-radius: 50%;
-    margin: 0 1px;
-    animation: bounce 1.2s infinite;
-  }
-  .dot:nth-child(2) { animation-delay: 0.2s; }
-  .dot:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes bounce {
-    0%, 80%, 100% { transform: translateY(0); }
-    40% { transform: translateY(-6px); }
-  }
+/* ── Forrás kártyák ──────────────────────────────────────── */
+.da-sources {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px;
+}
+.da-source {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  background: #eff6ff;
+  color: #2563eb;
+  border-radius: 20px;
+  border: 1px solid #bfdbfe;
+  cursor: default;
+}
 
-  #input-area {
-    padding: 0.75rem;
-    border-top: 1px solid #e8e8e8;
-    display: flex;
-    gap: 0.5rem;
-    background: white;
-  }
+/* ── Typing ──────────────────────────────────────────────── */
+#da-typing {
+  display: none;
+  align-self: flex-start;
+}
+.da-dots {
+  background: #f1f5f9;
+  border-radius: 16px 16px 16px 3px;
+  padding: 10px 14px;
+  display: flex; gap: 4px; align-items: center;
+}
+.da-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #94a3b8;
+  animation: da-bounce 1.2s infinite;
+}
+.da-dot:nth-child(2) { animation-delay: 0.2s; }
+.da-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes da-bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40%  { transform: translateY(-5px); }
+}
 
-  #user-input {
-    flex: 1;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid #e0e0e0;
-    border-radius: 20px;
-    font-size: 0.8125rem;
-    font-family: inherit;
-    outline: none;
-    color: #1a1a1a;
-    background: white;
-    resize: none;
-    line-height: 1.5;
-  }
-  #user-input:focus { border-color: #2563eb; }
+/* ── Input area ──────────────────────────────────────────── */
+#da-input-area {
+  padding: 10px 12px;
+  border-top: 1px solid #e8edf2;
+  display: flex;
+  gap: 8px;
+  background: #fff;
+  flex-shrink: 0;
+  align-items: flex-end;
+}
+#da-input {
+  flex: 1;
+  padding: 9px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  color: #1a1a2e;
+  resize: none;
+  line-height: 1.5;
+  max-height: 100px;
+  overflow-y: auto;
+  transition: border-color 0.15s;
+}
+#da-input:focus { border-color: var(--primary, #1a56db); }
+#da-send {
+  width: 36px; height: 36px;
+  background: var(--primary, #1a56db);
+  color: #fff;
+  border: none; border-radius: 50%;
+  cursor: pointer;
+  font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.1s;
+}
+#da-send:hover:not(:disabled) { transform: scale(1.08); }
+#da-send:disabled { background: #cbd5e1; cursor: not-allowed; }
 
-  #send-btn {
-    width: 36px; height: 36px;
-    background: #2563eb;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 1rem;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-    transition: background 0.15s;
-  }
-  #send-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+/* ── Footer ──────────────────────────────────────────────── */
+#da-footer {
+  text-align: center;
+  padding: 6px;
+  font-size: 10px;
+  color: #aaa;
+  background: #fff;
+  border-top: 1px solid #f1f5f9;
+}
+#da-footer a { color: #aaa; text-decoration: none; }
+#da-footer a:hover { color: var(--primary, #1a56db); }
 
-  #welcome {
-    text-align: center;
-    padding: 2rem 1rem;
-    color: #888;
+/* ── Mobile ──────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  #da-window {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 100px);
+    right: 8px;
+    bottom: 80px;
   }
-  #welcome .icon { font-size: 2rem; margin-bottom: 0.5rem; }
-  #welcome p { font-size: 0.8125rem; line-height: 1.6; }
+}
 </style>
 </head>
 <body>
-<div id="chat-container">
-  <div id="chat-header">
-    <div class="avatar">🤖</div>
-    <div class="info">
-      <div class="name" id="widget-name">Asszisztens</div>
-      <div class="status">● Online</div>
+
+<!-- Bubble gomb -->
+<button id="da-bubble" onclick="daToggle()" title="Chat megnyitása">💬</button>
+
+<!-- Chat ablak -->
+<div id="da-window">
+  <div id="da-header">
+    <div id="da-logo">🤖</div>
+    <div id="da-header-info">
+      <div id="da-company">Asszisztens</div>
+      <div id="da-status">Online</div>
     </div>
+    <button id="da-close" onclick="daToggle()" title="Bezárás">✕</button>
   </div>
 
-  <div id="messages">
-    <div id="welcome">
+  <div id="da-messages">
+    <div id="da-welcome">
       <div class="icon">💬</div>
-      <p>Szia! Miben segíthetek?<br>Kérdezz bátran a dokumentumainkkal kapcsolatban.</p>
+      <p id="da-welcome-text">Szia! Miben segíthetek?</p>
     </div>
-    <div class="msg assistant" id="typing" style="display:none">
-      <div class="bubble">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
+    <div class="da-msg bot" id="da-typing" style="display:none">
+      <div class="da-dots">
+        <span class="da-dot"></span>
+        <span class="da-dot"></span>
+        <span class="da-dot"></span>
       </div>
     </div>
   </div>
 
-  <div id="input-area">
-    <textarea id="user-input" placeholder="Írj üzenetet..." rows="1"></textarea>
-    <button id="send-btn" onclick="sendMessage()">➤</button>
+  <div id="da-input-area">
+    <textarea id="da-input" placeholder="Írj üzenetet..." rows="1"></textarea>
+    <button id="da-send" onclick="daSend()">➤</button>
+  </div>
+
+  <div id="da-footer">
+    Powered by <a href="https://docuagent.ai" target="_blank" rel="noopener">DocuAgent</a>
   </div>
 </div>
 
 <script>
-  // Config — iframe src URL paraméterekből
-  const params   = new URLSearchParams(window.location.search);
-  const API_URL  = params.get('api_url') || 'http://localhost:8000';
-  const SLUG     = params.get('tenant_slug') || 'demo';
-  const NAME     = params.get('name') || 'Asszisztens';
+// ── Konfig — URL paraméterekből (iframe embed) + script tag data attrib ──
+(function () {
+  const params  = new URLSearchParams(window.location.search);
+  const SLUG    = params.get('tenant') || params.get('tenant_slug') || 'demo';
+  const COLOR   = params.get('color')  || params.get('primary_color') || '#1a56db';
+  const API_URL = params.get('api_url') || (window.location.origin.includes('localhost') ? 'http://localhost:8000' : '');
 
-  document.getElementById('widget-name').textContent = NAME;
+  // CSS változó
+  document.documentElement.style.setProperty('--primary', COLOR);
 
-  let sessionId = null;
-  const messagesEl = document.getElementById('messages');
-  const inputEl    = document.getElementById('user-input');
-  const sendBtn    = document.getElementById('send-btn');
-  const typingEl   = document.getElementById('typing');
-  let welcomeEl    = document.getElementById('welcome');
+  // Session + message persistence
+  const SESSION_KEY  = 'da_session_'  + SLUG;
+  const MESSAGES_KEY = 'da_messages_' + SLUG;
+  let sessionId = localStorage.getItem(SESSION_KEY) || null;
 
-  inputEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-
-  function appendMessage(role, content, sources) {
-    if (welcomeEl) {
-      welcomeEl.remove();
-      welcomeEl = null;
-    }
-
-    const msg = document.createElement('div');
-    msg.className = 'msg ' + role;
-
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = content;
-    msg.appendChild(bubble);
-
-    if (sources && sources.length > 0) {
-      const sourcesEl = document.createElement('div');
-      sourcesEl.className = 'sources';
-      sources.forEach(s => {
-        const badge = document.createElement('span');
-        badge.className = 'source-badge';
-        badge.textContent = '📄 ' + s.filename + ' · ' + Math.round(s.score * 100) + '%';
-        sourcesEl.appendChild(badge);
-      });
-      msg.appendChild(sourcesEl);
-    }
-
-    messagesEl.insertBefore(msg, typingEl);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+  function _saveMessages() {
+    const msgs = [];
+    msgEl.querySelectorAll('.da-msg').forEach(wrap => {
+      if (wrap.id === 'da-typing') return;
+      const bubble = wrap.querySelector('.da-bubble');
+      if (!bubble) return;
+      const sources = [];
+      wrap.querySelectorAll('.da-source').forEach(s => sources.push(s.textContent));
+      msgs.push({ role: wrap.classList.contains('user') ? 'user' : 'bot', text: bubble.textContent, sources });
+    });
+    try { localStorage.setItem(MESSAGES_KEY, JSON.stringify(msgs)); } catch (_) {}
   }
 
-  async function sendMessage() {
-    const question = inputEl.value.trim();
-    if (!question) return;
+  const msgEl     = document.getElementById('da-messages');
+  const inputEl   = document.getElementById('da-input');
+  const sendBtn   = document.getElementById('da-send');
+  const typingEl  = document.getElementById('da-typing');
+  const windowEl  = document.getElementById('da-window');
+  const bubbleEl  = document.getElementById('da-bubble');
+  let   welcomeEl = document.getElementById('da-welcome');
+  let   isOpen    = false;
+
+  // ── Konfig betöltése ────────────────────────────────────────
+  async function loadConfig() {
+    try {
+      const r = await fetch(`${API_URL}/api/widget/config/${SLUG}`);
+      if (!r.ok) return;
+      const cfg = await r.json();
+      document.getElementById('da-company').textContent = cfg.company_name || 'Asszisztens';
+      document.getElementById('da-welcome-text').textContent = cfg.welcome_message || 'Szia! Miben segíthetek?';
+      if (cfg.primary_color && !params.get('color')) {
+        document.documentElement.style.setProperty('--primary', cfg.primary_color);
+      }
+      if (cfg.logo_url) {
+        const logoEl = document.getElementById('da-logo');
+        logoEl.innerHTML = `<img src="${cfg.logo_url}" alt="logo">`;
+      }
+    } catch (_) { /* silent */ }
+  }
+
+  // ── Toggle ──────────────────────────────────────────────────
+  window.daToggle = function () {
+    isOpen = !isOpen;
+    windowEl.classList.toggle('open', isOpen);
+    bubbleEl.textContent = isOpen ? '✕' : '💬';
+    if (isOpen) inputEl.focus();
+  };
+
+  // ── Üzenet hozzáadása ────────────────────────────────────────
+  function appendMsg(role, text, sources) {
+    if (welcomeEl) { welcomeEl.remove(); welcomeEl = null; }
+
+    const wrap   = document.createElement('div');
+    wrap.className = 'da-msg ' + (role === 'user' ? 'user' : 'bot');
+
+    const bub = document.createElement('div');
+    bub.className = 'da-bubble';
+    bub.textContent = text;
+    wrap.appendChild(bub);
+
+    if (sources && sources.length > 0) {
+      const src = document.createElement('div');
+      src.className = 'da-sources';
+      sources
+        .filter(s => s.score >= 0.5)
+        .slice(0, 3)
+        .forEach(s => {
+          const badge = document.createElement('span');
+          badge.className = 'da-source';
+          badge.title = `Egyezés: ${Math.round(s.score * 100)}%`;
+          badge.textContent = '📄 ' + s.filename.replace(/\.[^.]+$/, '');
+          src.appendChild(badge);
+        });
+      if (src.children.length) wrap.appendChild(src);
+    }
+
+    msgEl.insertBefore(wrap, typingEl);
+    msgEl.scrollTop = msgEl.scrollHeight;
+    _saveMessages();
+  }
+
+  // ── Küldés ──────────────────────────────────────────────────
+  window.daSend = async function () {
+    const text = inputEl.value.trim();
+    if (!text || sendBtn.disabled) return;
 
     inputEl.value = '';
+    inputEl.style.height = 'auto';
     sendBtn.disabled = true;
-    appendMessage('user', question);
+    appendMsg('user', text);
 
     typingEl.style.display = 'flex';
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    msgEl.scrollTop = msgEl.scrollHeight;
 
     try {
-      const res = await fetch(API_URL + '/api/widget/chat/message', {
+      const res = await fetch(`${API_URL}/api/widget/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: question,
-          session_id: sessionId,
-          tenant_slug: SLUG
-        })
+        body: JSON.stringify({ message: text, session_id: sessionId, tenant_slug: SLUG }),
       });
-
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       sessionId = data.session_id;
+      localStorage.setItem(SESSION_KEY, sessionId);
       typingEl.style.display = 'none';
-      appendMessage('assistant', data.answer, data.sources);
+      appendMsg('bot', data.answer, data.sources);
     } catch (e) {
       typingEl.style.display = 'none';
-      appendMessage('assistant', 'Sajnálom, hiba történt. Kérlek próbáld újra.');
+      appendMsg('bot', 'Sajnálom, hiba történt. Kérlek próbáld újra! 🙏');
     } finally {
       sendBtn.disabled = false;
       inputEl.focus();
     }
+  };
+
+  // ── Auto-grow textarea ───────────────────────────────────────
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 100) + 'px';
+  });
+
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      window.daSend();
+    }
+  });
+
+  // ── Inicializálás ────────────────────────────────────────────
+  // Restore previous messages if session exists
+  if (sessionId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(MESSAGES_KEY) || '[]');
+      if (stored.length > 0) {
+        stored.forEach(m => {
+          const fakeSourceObjs = (m.sources || []).map(text => ({ filename: text.replace(/^📄\s*/, ''), score: 1 }));
+          appendMsg(m.role, m.text, fakeSourceObjs);
+        });
+      }
+    } catch (_) {}
   }
+
+  loadConfig();
+})();
 </script>
 </body>
 </html>

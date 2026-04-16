@@ -77,11 +77,11 @@ function ConfirmModal({ doc, onConfirm, onCancel, deleting }) {
 }
 
 export default function DocsPage() {
-  const [docs, setDocs]           = useState(null)
-  const [vectors, setVectors]     = useState(0)
-  const [dragging, setDragging]   = useState(false)
-  const [confirmDoc, setConfirmDoc] = useState(null)   // { id, filename }
-  const [deleting, setDeleting]   = useState(false)
+  const [docs, setDocs]             = useState(null)
+  const [vectors, setVectors]       = useState(0)
+  const [dragging, setDragging]     = useState(false)
+  const [confirmDoc, setConfirmDoc] = useState(null)
+  const [deleting, setDeleting]     = useState(false)
 
   const { authFetch } = useAuth()
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -99,24 +99,25 @@ export default function DocsPage() {
     return () => window.removeEventListener('docuagent:uploaded', loadDocs)
   }, [])
 
+  // Dispatch global event — Layout.jsx listens and opens the modal
   function triggerUpload() {
-    document.getElementById('fileIn')?.click()
+    window.dispatchEvent(new CustomEvent('docuagent:triggerupload'))
   }
 
   async function handleDelete() {
     if (!confirmDoc) return
     const docId = confirmDoc.id
-
-    // Optimistic update — azonnal eltávolítjuk a listából
-    setDocs(prev => prev.filter(d => d.id !== docId))
-    setConfirmDoc(null)
-
+    setDeleting(true)
     try {
       const res = await authFetch(`${apiUrl}/api/documents/${docId}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      loadDocs()  // szerver-szinkron frissítés siker esetén
     } catch {
-      loadDocs()  // revert: visszatöltjük a tényleges listát hiba esetén
+      // ignore — we still remove from UI and reload
+    } finally {
+      setDeleting(false)
+      setDocs(prev => prev.filter(d => d.id !== docId))
+      setConfirmDoc(null)
+      loadDocs()
     }
   }
 
@@ -125,14 +126,10 @@ export default function DocsPage() {
     setDragging(false)
     const files = e.dataTransfer?.files
     if (!files?.length) return
-    // Simulate file input change event with the dropped files
-    const input = document.getElementById('fileIn')
-    if (!input) return
-    // Create a new DataTransfer and set files
-    const dt = new DataTransfer()
-    Array.from(files).forEach(f => dt.items.add(f))
-    input.files = dt.files
-    input.dispatchEvent(new Event('change', { bubbles: true }))
+    // Pass actual File objects through the custom event — Layout picks them up
+    window.dispatchEvent(new CustomEvent('docuagent:triggerupload', {
+      detail: { files: Array.from(files) }
+    }))
   }
 
   const extColors = {

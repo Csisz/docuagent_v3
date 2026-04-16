@@ -18,7 +18,9 @@ import time
 import uuid
 import logging
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 
 import db.queries as q
 import db.run_queries as rq
@@ -34,6 +36,75 @@ from core.security import get_current_user
 
 router = APIRouter(prefix="/api", tags=["Documents"])
 log    = logging.getLogger("docuagent")
+
+
+# ── Suggest-tag request model ─────────────────────────────────
+
+class SuggestTagBody(BaseModel):
+    filename: str
+    first_bytes_b64: Optional[str] = ""
+
+
+_BILLING_KW = [
+    "szamla", "számla", "szla", "afa", "áfa", "billing",
+    "invoice", "faktura", "faktúra", "dijbeker", "díjbekér",
+]
+_LEGAL_KW = [
+    "nav", "adó", "ado", "adozas", "adózás", "tax", "kata",
+    "legal", "jogi", "szerzod", "szerződ", "gdpr",
+    "rendelet", "hatarozat", "határozat",
+]
+_HR_KW = [
+    "ber", "bér", "munka", "hr", "cafeteria", "szabadsag",
+    "szabadság", "fizetes", "fizetés", "berszam", "bérszám",
+    "munkavallal", "munkavállal",
+]
+_SUPPORT_KW = ["support", "ugyfel", "ügyfél", "help", "segitseg", "segítség", "aszf", "ászf"]
+_FAQ_KW     = ["gyik", "faq"]
+
+
+@router.post("/documents/suggest-tag")
+async def suggest_tag(body: SuggestTagBody):
+    """
+    Rule-based tag suggestion from filename — no OpenAI call needed.
+    Returns: { suggested_tag, confidence, reason }
+    """
+    name = body.filename.lower()
+
+    for kw in _BILLING_KW:
+        if kw in name:
+            return {"suggested_tag": "billing", "confidence": 0.9,
+                    "reason": f"Fájlnév tartalmazza: '{kw}'"}
+
+    for kw in _LEGAL_KW:
+        if kw in name:
+            return {"suggested_tag": "legal", "confidence": 0.9,
+                    "reason": f"Fájlnév tartalmazza: '{kw}'"}
+
+    for kw in _HR_KW:
+        if kw in name:
+            return {"suggested_tag": "hr", "confidence": 0.9,
+                    "reason": f"Fájlnév tartalmazza: '{kw}'"}
+
+    for kw in _FAQ_KW:
+        if kw in name:
+            return {"suggested_tag": "general", "confidence": 0.7,
+                    "reason": f"GYIK / FAQ fájl → általános kategória"}
+
+    for kw in _SUPPORT_KW:
+        if kw in name:
+            return {"suggested_tag": "support", "confidence": 0.9,
+                    "reason": f"Fájlnév tartalmazza: '{kw}'"}
+
+    # Extension hints (weaker signal)
+    ext = body.filename.rsplit(".", 1)[-1].lower() if "." in body.filename else ""
+    if ext in ("xlsx", "xls", "csv"):
+        return {"suggested_tag": "billing", "confidence": 0.6,
+                "reason": "Táblázat formátum → valószínűleg számlázási adat"}
+
+    return {"suggested_tag": "general", "confidence": 0.4,
+            "reason": "Nincs specifikus kulcsszó a fájlnévben"}
+
 
 _FALLBACK_BY_LANG = {"HU": FALLBACK_REPLY_HU, "EN": FALLBACK_REPLY_EN, "DE": FALLBACK_REPLY_DE}
 

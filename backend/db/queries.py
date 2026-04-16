@@ -678,3 +678,27 @@ async def complete_onboarding(tenant_id: str) -> dict:
            RETURNING *""",
         tenant_id
     )
+
+
+# ══════════════════════════════════════════════════════════════
+# POLICY OVERRIDES
+# ══════════════════════════════════════════════════════════════
+
+async def get_policy_overrides(tenant_id: str) -> list:
+    """Return all policy overrides for a tenant."""
+    return await db.fetch(
+        "SELECT rule_key, rule_value, updated_at FROM policy_overrides WHERE tenant_id=$1 ORDER BY rule_key",
+        tenant_id,
+    )
+
+
+async def set_policy_override(tenant_id: str, rule_key: str, rule_value: str) -> None:
+    """Upsert a single policy override for a tenant."""
+    await db.execute(
+        """INSERT INTO policy_overrides (tenant_id, rule_key, rule_value)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (tenant_id, rule_key) DO UPDATE
+             SET rule_value = EXCLUDED.rule_value,
+                 updated_at = NOW()""",
+        tenant_id, rule_key, rule_value,
+    )

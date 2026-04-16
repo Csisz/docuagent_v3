@@ -12,13 +12,20 @@ v3.3 változások:
   - generate_reply logol a rag_logs táblába (latency, lang, confidence)
   - Fallback logika: ha alacsony confidence → NEEDS_ATTENTION marad,
     nem generál gyenge választ
+
+v3.16 (Phase 4 Part 2):
+  - 5-rétegű agent architektúra: Intake → Knowledge → Drafting → Compliance → Action
+  - asyncio.gather: intake + knowledge párhuzamosan fut
+  - Policy engine: BASE_POLICY + DB tenant overrides
+  - Backward-compatible response shape megőrzve
 """
+import asyncio
 import time
-import json
 import logging
 from fastapi import APIRouter
 from services import openai_service, learning_service
 from services.file_service import detect_language
+from services.policy_engine import get_policy
 import db.queries as q
 import db.run_queries as rq
 from models.schemas import (
@@ -26,6 +33,13 @@ from models.schemas import (
     EmailCategory, EmailStatus, AiDecision
 )
 from core.config import OPENAI_API_KEY, CONF_THRESHOLD, COMPANY_NAME
+
+# ── Agent layers ───────────────────────────────────────────────
+import agents.intake as intake_layer
+import agents.knowledge as knowledge_layer
+import agents.drafting as drafting_layer
+import agents.compliance as compliance_layer
+import agents.action as action_layer
 
 router = APIRouter(prefix="/api", tags=["AI"])
 log    = logging.getLogger("docuagent")
@@ -47,37 +61,7 @@ _LANG_INSTRUCTION = {
     ),
 }
 
-# ── Osztályozó system prompt (optimalizált) ───────────────────
-_CLASSIFY_SYSTEM = """You are an expert email classifier for a customer service team.
-
-Classify the incoming email and respond ONLY with valid JSON:
-{{"can_answer": true/false, "confidence": 0.0-1.0, "category": "complaint|inquiry|appointment|other", "reason": "1 sentence", "urgency_score": 0-100, "sentiment": "positive|neutral|negative|angry", "booking_intent": true/false}}
-
-Category rules:
-- "complaint":    customer expresses dissatisfaction, reports a problem, requests refund/compensation
-- "inquiry":      customer asks a question, requests information, needs help or guidance
-- "appointment":  customer requests a meeting, demo, consultation, or callback
-- "other":        newsletter, spam, internal, out-of-scope
-
-Urgency score rules (0-100):
-- 0-20:  routine, no deadline, low stakes
-- 21-50: moderate, should be addressed today
-- 51-75: time-sensitive, references deadline or waiting
-- 76-100: critical — legal threat, service outage, VIP, explicit urgency ("sürgős", "azonnal", "urgent", "asap")
-
-Sentiment rules:
-- "positive": satisfied, grateful, complimentary tone
-- "neutral":  factual, no strong emotion
-- "negative": frustrated, disappointed, complaining
-- "angry":    aggressive, threatening, uses strong language
-
-Decision rules:
-- can_answer=true ONLY IF: confidence >= {threshold} AND category != "complaint"
-- Complaints always → can_answer=false (need human empathy)
-- Uncertainty or ambiguity → lower confidence, can_answer=false
-- Short/vague emails → confidence max 0.65{feedback_ctx}"""
-
-# ── Válasz-generáló system prompt (optimalizált) ─────────────
+# ── Válasz-generáló system prompt ─────────────────────────────
 _REPLY_SYSTEM = """{COMPANY_NAME} ügyfélszolgálati asszisztense vagy.
 
 {lang_instruction}
@@ -114,17 +98,27 @@ async def classify_email(req: ClassifyRequest):
             input_summary=f"Subject: {req.subject[:80]}",
         )
 
-    # ── Feedback context (tenant-scoped) ───────────────────────
-    feedback_ctx, forced, sim = await learning_service.get_feedback_context(
-        req.subject, req.body, tenant_id=tenant_id
+    # ── Load tenant policy ─────────────────────────────────────
+    policy = await get_policy(tenant_id)
+
+    # ── Layer 1+2: Intake & Knowledge (parallel) ───────────────
+    intake_ctx, knowledge_ctx = await asyncio.gather(
+        intake_layer.process(req.subject, req.body or "", policy, tenant_id),
+        knowledge_layer.retrieve(req.subject, req.body or "", policy, tenant_id),
     )
 
-    # ── Tanult override ────────────────────────────────────────
-    if forced and sim >= learning_service.EMBED_OVERRIDE_THRESHOLD:
-        conf     = round(0.50 + sim * 0.45, 2)
-        can      = forced == EmailStatus.AI_ANSWERED.value
-        cat      = EmailCategory.COMPLAINT if forced == EmailStatus.NEEDS_ATTENTION.value else EmailCategory.INQUIRY
-        status   = EmailStatus(forced)
+    # ── Learned override shortcut ──────────────────────────────
+    if (
+        policy.get("learning_enabled", True)
+        and knowledge_ctx.forced_override
+        and knowledge_ctx.forced_sim >= learning_service.EMBED_OVERRIDE_THRESHOLD
+    ):
+        forced  = knowledge_ctx.forced_override
+        sim     = knowledge_ctx.forced_sim
+        conf    = round(0.50 + sim * 0.45, 2)
+        can     = forced == EmailStatus.AI_ANSWERED.value
+        cat     = EmailCategory.COMPLAINT if forced == EmailStatus.NEEDS_ATTENTION.value else EmailCategory.INQUIRY
+        status  = EmailStatus(forced)
         decision = AiDecision(can_answer=can, confidence=conf,
                               reason=f"learned sim={sim:.2f}", learned_override=True)
         if req.email_id:
@@ -140,60 +134,76 @@ async def classify_email(req: ClassifyRequest):
                                 reason=f"Tanult egyezés ({sim:.0%})",
                                 status=status, learned_override=True)
 
-    # ── GPT osztályozás ────────────────────────────────────────
-    sys_prompt = _CLASSIFY_SYSTEM.format(
-        threshold=CONF_THRESHOLD,
-        feedback_ctx=feedback_ctx
-    )
+    # ── Layer 3: Drafting ──────────────────────────────────────
     try:
-        raw    = await openai_service.chat(
-            [{"role": "system", "content": sys_prompt},
-             {"role": "user",   "content": f"Subject: {req.subject}\n\n{req.body[:3000]}"}],
-            max_tokens=300, json_mode=True, task_type="classify",
-            tenant_id=tenant_id,
+        draft_result = await drafting_layer.classify(
+            req.subject, req.body or "",
+            knowledge_ctx, intake_ctx,
+            policy, tenant_id,
         )
-        p      = json.loads(raw)
-        can    = bool(p.get("can_answer", False))
-        conf   = round(float(p.get("confidence", 0.0)), 2)
-        cat    = EmailCategory(p.get("category", "other"))
-        reason = p.get("reason", "")
-        booking_intent = bool(p.get("booking_intent", False)) or cat == EmailCategory.APPOINTMENT
-        urgency_score = max(0, min(100, int(p.get("urgency_score", 0))))
-        sentiment     = p.get("sentiment", "neutral")
-        if sentiment not in ("positive", "neutral", "negative", "angry"):
-            sentiment = "neutral"
-        if cat == EmailCategory.APPOINTMENT:
-            can = False
-        status = EmailStatus.AI_ANSWERED if (can and conf >= CONF_THRESHOLD) else EmailStatus.NEEDS_ATTENTION
-
-        decision = AiDecision(can_answer=can, confidence=conf, reason=reason,
-                              urgency_score=urgency_score, sentiment=sentiment)
-        if req.email_id:
-            await q.update_email_classification(
-                req.email_id, cat.value, status.value, decision.model_dump(), conf,
-                urgency_score=urgency_score, sentiment=sentiment
-            )
-
-        if run_id:
-            await rq.finish_run(run_id, "success",
-                                latency_ms=int((time.monotonic() - t_start) * 1000),
-                                result_summary=f"{status.value} conf={conf} urgency={urgency_score}")
-        log.info(f"Classify GPT: '{req.subject[:40]}' → {status.value} conf={conf} urgency={urgency_score} sentiment={sentiment} booking={booking_intent}")
-        return ClassifyResponse(can_answer=can, confidence=conf, category=cat,
-                                reason=reason, status=status,
-                                urgency_score=urgency_score, sentiment=sentiment,
-                                booking_intent=booking_intent)
-
     except Exception as e:
         if run_id:
             await rq.finish_run(run_id, "failed",
                                 latency_ms=int((time.monotonic() - t_start) * 1000),
                                 error_message=str(e))
-        log.error(f"Classify error: {e}")
+        log.error(f"Classify drafting error: {e}")
         return ClassifyResponse(
             can_answer=False, confidence=0.0, category=EmailCategory.OTHER,
             reason=str(e), status=EmailStatus.NEEDS_ATTENTION
         )
+
+    out = draft_result.output
+
+    # booking_intent: appointment category OR explicit flag from AI
+    booking_intent = bool(out.booking_intent) or out.category == "appointment"
+
+    # ── Layer 4: Compliance ────────────────────────────────────
+    compliance = compliance_layer.evaluate(
+        out, intake_ctx, req.subject, req.body or "", policy
+    )
+
+    # ── Layer 5: Action ────────────────────────────────────────
+    action_result = await action_layer.execute(
+        email_id=req.email_id,
+        subject=req.subject,
+        sender=getattr(req, "sender", "") or "",
+        draft=draft_result,
+        compliance=compliance,
+        intake=intake_ctx,
+        policy=policy,
+        tenant_id=tenant_id,
+    )
+
+    # ── Finish run ─────────────────────────────────────────────
+    latency_ms = int((time.monotonic() - t_start) * 1000)
+    if run_id:
+        case_info = f" case={action_result.case_id}" if action_result.case_linked else ""
+        await rq.finish_run(
+            run_id, "success",
+            latency_ms=latency_ms,
+            result_summary=(
+                f"{compliance.status} conf={out.confidence} "
+                f"urgency={out.urgency_score}{case_info}"
+            ),
+        )
+
+    log.info(
+        f"Classify: '{req.subject[:40]}' → {compliance.status} "
+        f"conf={out.confidence} urgency={out.urgency_score} "
+        f"sentiment={out.sentiment} booking={booking_intent} "
+        f"domain={compliance.domain_tag} case_linked={action_result.case_linked}"
+    )
+
+    return ClassifyResponse(
+        can_answer=compliance.can_answer,
+        confidence=out.confidence,
+        category=EmailCategory(out.category),
+        reason=compliance.veto_reason or out.reason,
+        status=EmailStatus(compliance.status),
+        urgency_score=out.urgency_score,
+        sentiment=out.sentiment,
+        booking_intent=booking_intent,
+    )
 
 
 @router.post("/generate-reply")
@@ -205,11 +215,6 @@ async def generate_reply(req: ReplyRequest):
     t_start  = time.monotonic()
     lang     = req.language or detect_language(req.body or req.subject)
     lang_instr = _LANG_INSTRUCTION.get(lang, _LANG_INSTRUCTION["HU"])
-
-    # ── agent_run start ────────────────────────────────────────
-    # ReplyRequest doesn't carry tenant_id (called from emails.py pipeline)
-    # We skip agent_runs logging for generate_reply since tenant_id isn't available here
-    # This will be addressed when emails.py is updated in a future phase
 
     sys_prompt = _REPLY_SYSTEM.format(
         COMPANY_NAME=COMPANY_NAME,

@@ -26,24 +26,38 @@ _COST_PER_1K = {
 }
 
 
-def select_model(task_type: str, confidence_required: float = 0.0) -> str:
+def select_model(
+    task_type: str,
+    confidence_required: float = 0.0,
+    tenant_policy: Optional[dict] = None,
+) -> str:
     """
     Intelligens model routing.
-    - classify   → gpt-4o-mini (gyors, olcsó)
-    - summarize  → gpt-4o-mini
-    - reply (conf > 0.8) → gpt-4o (pontosabb, fontosabb email)
-    - reply (conf ≤ 0.8) → gpt-4o-mini
-    - insights   → gpt-4o
-    - general    → gpt-4o-mini
+    - classify          → gpt-4o-mini (gyors, olcsó)
+    - extract_entities  → gpt-4o-mini
+    - summarize         → gpt-4o-mini
+    - draft_reply       → gpt-4o-mini (agent drafting layer)
+    - reply (conf > threshold) → gpt-4o (pontosabb, fontosabb email)
+    - reply (conf ≤ threshold) → gpt-4o-mini
+    - insights          → gpt-4o
+    - general           → gpt-4o-mini
+
+    tenant_policy overrides:
+    - use_smart_model_for_reply: False → always gpt-4o-mini for reply
+    - smart_model_threshold: float → confidence threshold for gpt-4o
     """
-    if task_type == "classify":
-        return MODEL_MINI
-    if task_type == "summarize":
+    policy = tenant_policy or {}
+    use_smart = policy.get("use_smart_model_for_reply", True)
+    smart_thresh = float(policy.get("smart_model_threshold", 0.80))
+
+    if task_type in ("classify", "extract_entities", "summarize", "draft_reply"):
         return MODEL_MINI
     if task_type == "insights":
         return MODEL_SMART
     if task_type == "reply":
-        return MODEL_SMART if confidence_required > 0.8 else MODEL_MINI
+        if not use_smart:
+            return MODEL_MINI
+        return MODEL_SMART if confidence_required > smart_thresh else MODEL_MINI
     return MODEL_MINI
 
 

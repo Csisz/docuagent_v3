@@ -325,8 +325,8 @@ export default function Layout() {
                         value={syncTagValue}
                         onChange={e => handleSyncTagChange(e.target.value)}
                         style={{
-                          background: 'var(--card)', border: '1px solid var(--accent)',
-                          borderRadius: 6, color: 'var(--text)', padding: '4px 8px',
+                          background: '#0d1b2e', border: '1px solid var(--accent)',
+                          borderRadius: 6, color: '#e2e8f0', padding: '4px 8px',
                           fontSize: 13, outline: 'none', cursor: 'pointer',
                         }}
                       >
@@ -363,10 +363,10 @@ export default function Layout() {
                             disabled={syncAll}
                             onChange={e => setFileTag(f.name, e.target.value)}
                             style={{
-                              background: 'var(--card)',
-                              border: `1px solid ${syncAll ? 'var(--border)' : 'var(--accent)'}`,
+                              background: '#0d1b2e',
+                              border: `1px solid ${syncAll ? 'rgba(255,255,255,0.12)' : 'var(--accent)'}`,
                               borderRadius: 6,
-                              color: syncAll ? 'var(--muted)' : 'var(--text)',
+                              color: syncAll ? '#64748b' : '#e2e8f0',
                               padding: '4px 8px', fontSize: 12, outline: 'none',
                               flexShrink: 0,
                               cursor: syncAll ? 'not-allowed' : 'pointer',

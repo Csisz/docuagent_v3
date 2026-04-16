@@ -124,7 +124,7 @@ export default function DashboardPage() {
         <StatusCard label={STATUS_LABELS.CLOSED}          subLabel="Lezárva"            count={d?.status_breakdown?.CLOSED}          badge="closed"    filter="CLOSED" />
       </div>
     ),
-    roi_card:  <ROICard aiAnswered={d?.kpis?.ai_answered?.value} />,
+    roi_card:  <ROICard aiAnswered={d?.kpis?.ai_answered?.value} needsAttention={d?.kpis?.needs_attention?.value} />,
     charts: (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2 glass-card">
@@ -149,6 +149,69 @@ export default function DashboardPage() {
         <SystemStatus />
       </div>
     ),
+  }
+
+  // First-run empty state
+  const emailCount = d?.kpis?.emails?.value
+  const docCount   = d?.documents?.length
+  const isFirstRun = emailCount === 0 && (docCount === 0 || docCount == null)
+  const hasGmail   = true  // assume connected if they're logged in; no direct check available
+
+  if (isFirstRun) {
+    return (
+      <div className="animate-fade-up flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="text-5xl mb-4">📬</div>
+        <h2 className="text-xl font-bold text-zinc-200 mb-2">Még nincs email vagy dokumentum</h2>
+        <p className="text-zinc-500 text-sm max-w-md mb-8 leading-relaxed">
+          Kövesd az alábbi lépéseket a rendszer beindításához. Az első email megérkezése után
+          a dashboard automatikusan frissül.
+        </p>
+        <div className="w-full max-w-sm space-y-3">
+          {[
+            {
+              num: 1, done: hasGmail,
+              label: 'Gmail összekapcsolva',
+              action: 'Gmail beállítás',
+              link: '/onboarding?step=2',
+            },
+            {
+              num: 2, done: docCount > 0,
+              label: `Dokumentum feltöltve (${docCount ?? 0}/1)`,
+              action: 'Dokumentum feltöltése',
+              link: '/documents',
+            },
+            {
+              num: 3, done: false,
+              label: 'Első email megérkezett',
+              action: 'Várakozás...',
+              link: null,
+            },
+          ].map(({ num, done, label, action, link }) => (
+            <div key={num} className="flex items-center gap-4 px-5 py-4 rounded-xl border text-left"
+                 style={{
+                   background: done ? 'rgba(74,222,128,0.06)' : 'rgba(255,255,255,0.03)',
+                   borderColor: done ? 'rgba(74,222,128,0.25)' : 'rgba(255,255,255,0.08)',
+                 }}>
+              <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold"
+                   style={{ background: done ? '#4ade8033' : 'rgba(255,255,255,0.08)', color: done ? '#4ade80' : '#64748b' }}>
+                {done ? '✓' : num}
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-medium" style={{ color: done ? '#e2e8f0' : '#94a3b8' }}>{label}</div>
+              </div>
+              {!done && link && (
+                <a href={link} className="text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-colors"
+                   style={{ color: '#1a56db', borderColor: 'rgba(26,86,219,0.4)', background: 'rgba(26,86,219,0.08)' }}>
+                  {action} →
+                </a>
+              )}
+              {done && <span className="text-[11px] text-green-500 font-mono">Kész</span>}
+              {!done && !link && <span className="text-[11px] text-zinc-600 font-mono">Várakozás...</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -352,15 +415,15 @@ function SLACard() {
 }
 
 
-function ROICard({ aiAnswered }) {
+function ROICard({ aiAnswered, needsAttention }) {
   const { theme } = useStore()
   const isLight = theme === 'light'
   const sliderBg = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.1)'
-  const [hourlyRate,      setHourlyRate]      = useState(() => {
-    try { return Number(localStorage.getItem('roi_hourly_rate'))      || 5000 } catch { return 5000 }
-  })
   const [minutesPerEmail, setMinutesPerEmail] = useState(() => {
-    try { return Number(localStorage.getItem('roi_minutes_per_email')) || 12   } catch { return 12   }
+    try { return Number(localStorage.getItem('roi_minutes_per_email')) || 8 } catch { return 8 }
+  })
+  const [hourlyRate, setHourlyRate] = useState(() => {
+    try { return Number(localStorage.getItem('roi_hourly_rate')) || 5000 } catch { return 5000 }
   })
   const [showConfig, setShowConfig] = useState(false)
 
@@ -373,10 +436,18 @@ function ROICard({ aiAnswered }) {
     try { localStorage.setItem('roi_minutes_per_email', v) } catch {}
   }
 
-  const count    = aiAnswered ?? 0
-  const hours    = (count * minutesPerEmail) / 60
-  const savedHuf = Math.round(hours * hourlyRate)
-  const savedFmt = savedHuf.toLocaleString('hu-HU')
+  const count      = aiAnswered ?? 0
+  const humanCount = needsAttention ?? 0
+  const totalCount = count + humanCount
+  const autoRatioPct = totalCount > 0 ? Math.round((count / totalCount) * 100) : 0
+
+  const totalMinutes = count * minutesPerEmail
+  const hours        = totalMinutes / 60
+  const savedHuf     = Math.round(hours * hourlyRate)
+  const savedFmt     = savedHuf.toLocaleString('hu-HU')
+  const timeFmt      = totalMinutes < 60
+    ? `~${totalMinutes} perc`
+    : `~${hours.toFixed(1)} óra`
 
   const sl = `w-full h-2 rounded-full appearance-none cursor-pointer
     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4
@@ -391,9 +462,9 @@ function ROICard({ aiAnswered }) {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-[13px] font-semibold">ROI Kalkulátor</h3>
+          <h3 className="text-[13px] font-semibold">Megtakarított idő</h3>
           <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
-            Az AI által megtakarított idő és költség
+            Az AI által kezelt levelek időmegtakarítása
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -412,31 +483,57 @@ function ROICard({ aiAnswered }) {
       </div>
 
       {/* Summary boxes */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="flex-1 rounded-xl px-5 py-4 text-center border"
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div className="col-span-2 rounded-xl px-5 py-4 text-center border"
              style={{background:'color-mix(in srgb, #22c55e 8%, transparent)', borderColor:'color-mix(in srgb, #22c55e 25%, transparent)'}}>
-          <div className="text-[10px] font-mono uppercase tracking-widest mb-1 font-semibold text-green-600 dark:text-green-500">Megtakarított idő</div>
-          <div className="text-3xl font-bold tracking-tight text-green-600 dark:text-green-400">{hours.toFixed(1)} h</div>
-          <div className="text-[10px] font-mono mt-1 text-green-800/50 dark:text-zinc-500">{count} email × {minutesPerEmail} perc</div>
+          <div className="text-[10px] font-mono uppercase tracking-widest mb-1 font-semibold text-green-600 dark:text-green-500">Megtakarított idő összesen</div>
+          <div className="text-3xl font-bold tracking-tight text-green-600 dark:text-green-400">{timeFmt}</div>
+          <div className="text-[10px] font-mono mt-1 text-green-800/50 dark:text-zinc-500">{count} email × ~{minutesPerEmail} perc/email</div>
         </div>
-        <div className="flex-1 rounded-xl px-5 py-4 text-center border"
-             style={{background:'color-mix(in srgb, #ff7820 8%, transparent)', borderColor:'color-mix(in srgb, #ff7820 25%, transparent)'}}>
-          <div className="text-[10px] font-mono uppercase tracking-widest mb-1 font-semibold text-orange-700 dark:text-orange-400">Pénzben kifejezve</div>
-          <div className="text-3xl font-bold tracking-tight text-orange-700 dark:text-[#ff7820]">{savedFmt} Ft</div>
-          <div className="text-[10px] font-mono mt-1 text-orange-800/50 dark:text-zinc-500">{hourlyRate.toLocaleString('hu-HU')} Ft/óra</div>
+        <div className="rounded-xl px-4 py-4 text-center border"
+             style={{background:'color-mix(in srgb, #22c55e 6%, transparent)', borderColor:'color-mix(in srgb, #22c55e 20%, transparent)'}}>
+          <div className="text-[10px] font-mono uppercase tracking-widest mb-1 font-semibold text-green-700 dark:text-green-500">AI kezelt</div>
+          <div className="text-2xl font-bold text-green-600 dark:text-green-400">{count}</div>
+          <div className="text-[9px] font-mono mt-1 text-zinc-500">emberi beavatkozás nélkül</div>
+        </div>
+        <div className="rounded-xl px-4 py-4 text-center border"
+             style={{background:'color-mix(in srgb, #ff7820 6%, transparent)', borderColor:'color-mix(in srgb, #ff7820 20%, transparent)'}}>
+          <div className="text-[10px] font-mono uppercase tracking-widest mb-1 font-semibold text-orange-700 dark:text-orange-400">Emberi jóváhagyás</div>
+          <div className="text-2xl font-bold text-orange-600 dark:text-[#ff7820]">{humanCount}</div>
+          <div className="text-[9px] font-mono mt-1 text-zinc-500">könyvelő döntött</div>
         </div>
       </div>
 
-      {/* Footer összefoglaló mondat */}
+      {/* Auto vs human ratio bar */}
+      {totalCount > 0 && (
+        <div className="mb-4">
+          <div className="flex justify-between text-[10px] text-zinc-500 font-mono mb-1.5">
+            <span>Automatizálási arány</span>
+            <span className="text-green-400 font-semibold">{autoRatioPct}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-white/8 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{width:`${autoRatioPct}%`, background:'linear-gradient(90deg,#22c55e,#4ade80)'}}
+            />
+          </div>
+          <div className="flex justify-between text-[9px] text-zinc-600 font-mono mt-1">
+            <span>{count} AI válasz</span>
+            <span>{humanCount} emberi jóváhagyás</span>
+          </div>
+        </div>
+      )}
+
+      {/* Ft megtakarítás */}
       {count > 0 && (
         <div className={clsx(
           'text-center text-[11.5px] border-t pt-3 mb-1',
           showConfig ? 'mb-4' : '',
           'text-slate-500 dark:text-zinc-500 border-slate-200 dark:border-white/5'
         )}>
-          Az AI eddig{' '}
-          <span className="text-green-600 dark:text-green-400 font-semibold">{savedFmt} Ft</span>{' '}
-          értékű munkát vett le a csapatodról.
+          Becsült megtakarítás:{' '}
+          <span className="text-[#ff7820] font-semibold">~{savedFmt} Ft</span>
+          {' '}({hourlyRate.toLocaleString('hu-HU')} Ft/óra)
         </div>
       )}
 

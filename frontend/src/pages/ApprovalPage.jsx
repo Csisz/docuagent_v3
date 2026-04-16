@@ -49,43 +49,164 @@ function UrgencyChip({ score, urgent }) {
   )
 }
 
-// ── RAG forrás lista ──────────────────────────────────────────
-function RagSources({ sources }) {
-  if (!sources?.length) return (
-    <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>
-      Nincs RAG forrás ehhez az emailhez
+// ── Entitás kinyerés (kliens oldali, regex-alapú) ────────────
+const TAX_KEYWORDS = ['nav','kata','áfa','szja','adó','bevallás','adóhatóság','iparűzési','hipa','eva']
+const INVOICE_KEYWORDS = ['számla','díjbekérő','fizetés','tartozás','kiegyenlítés','számlakorrekció','stornó','jóváírás']
+
+function extractEntities(text) {
+  if (!text) return { invoice_ids: [], amounts: [], dates: [], has_tax: false }
+  const lower = text.toLowerCase()
+
+  const invoiceRe = /(?:számlaszám|számla|inv|ref|szt)[:\-\s#]*([A-Z0-9\-\/]{4,20})/gi
+  const invoice_ids = [...new Set([...(text.matchAll(invoiceRe) || [])].map(m => m[1].trim()))].slice(0, 5)
+
+  const amountRe = /(\d[\d\s.,]{1,12})\s*(ft|huf|eur|€|usd|\$)/gi
+  const amounts = [...new Set([...(text.matchAll(amountRe) || [])].map(m => `${m[1].replace(/\s/g,'\u202f')} ${m[2].toUpperCase()}`))].slice(0, 5)
+
+  const dateRe = /\d{4}[\.\-\/]\d{1,2}[\.\-\/]\d{1,2}\.?|\d{4}\.\s*\w+\s*\d{1,2}\.?/g
+  const dates = [...new Set((text.match(dateRe) || []).map(d => d.trim()))].slice(0, 4)
+
+  const has_tax = TAX_KEYWORDS.some(k => lower.includes(k))
+
+  return { invoice_ids, amounts, dates, has_tax }
+}
+
+function EntityPanel({ email }) {
+  const text = `${email.subject || ''} ${email.body || ''}`
+  const { invoice_ids, amounts, dates, has_tax } = extractEntities(text)
+
+  if (!invoice_ids.length && !amounts.length && !dates.length && !has_tax) return null
+
+  return (
+    <div style={{
+      background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.2)',
+      borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '0',
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.625rem' }}>
+        Azonosított adatok
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+        {has_tax && (
+          <span style={{
+            fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6,
+            background: 'rgba(248,113,113,0.15)', color: '#f87171',
+            border: '1px solid rgba(248,113,113,0.3)',
+          }}>
+            🔴 NAV vagy adó tartalom észlelve
+          </span>
+        )}
+        {invoice_ids.map(id => (
+          <span key={id} style={{
+            fontSize: 11, padding: '3px 8px', borderRadius: 6,
+            background: 'rgba(96,165,250,0.12)', color: '#60a5fa',
+            border: '1px solid rgba(96,165,250,0.25)',
+            fontFamily: 'monospace',
+          }}>
+            🧾 {id}
+          </span>
+        ))}
+        {amounts.map(a => (
+          <span key={a} style={{
+            fontSize: 11, padding: '3px 8px', borderRadius: 6,
+            background: 'rgba(74,222,128,0.1)', color: '#4ade80',
+            border: '1px solid rgba(74,222,128,0.25)',
+            fontFamily: 'monospace',
+          }}>
+            💰 {a}
+          </span>
+        ))}
+        {dates.map(d => (
+          <span key={d} style={{
+            fontSize: 11, padding: '3px 8px', borderRadius: 6,
+            background: 'rgba(167,139,250,0.1)', color: '#a78bfa',
+            border: '1px solid rgba(167,139,250,0.25)',
+            fontFamily: 'monospace',
+          }}>
+            📅 {d}
+          </span>
+        ))}
+      </div>
     </div>
   )
+}
+
+// ── RAG forrás lista (collapsible, bizonyossági figyelmeztetéssel) ────
+function SourceTrustPanel({ sources, confidence }) {
+  const [open, setOpen] = useState(false)
+  const lowConf = confidence != null && confidence < 0.6
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-      {sources.map((s, i) => {
-        const score = typeof s.score === 'number' ? s.score : 0
-        const pct   = Math.round(score * 100)
-        return (
-          <div key={i} style={{
-            display: 'flex', alignItems: 'center', gap: '0.625rem',
-            padding: '0.375rem 0.625rem', borderRadius: 6,
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.06)',
-          }}>
-            <span style={{ fontSize: 12, color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              📄 {s.filename || s.file || '—'}
+    <div style={{
+      border: `1px solid ${lowConf ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.07)'}`,
+      borderRadius: 8,
+      background: lowConf ? 'rgba(251,191,36,0.04)' : 'rgba(255,255,255,0.02)',
+    }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer',
+          color: '#94a3b8', fontSize: 12,
+        }}
+      >
+        <span style={{ fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+          Mire támaszkodott az AI?
+          {confidence != null && (
+            <span style={{ marginLeft: 8, fontWeight: 400, textTransform: 'none', color: confColor(confidence) }}>
+              {Math.round(confidence * 100)}% relevancia
             </span>
-            <span style={{
-              fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
-              color: confColor(score), background: confBg(score),
-              padding: '1px 6px', borderRadius: 4,
+          )}
+        </span>
+        <span style={{ fontSize: 10 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '0 0.75rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+          {lowConf && (
+            <div style={{
+              fontSize: 11, padding: '0.375rem 0.625rem', borderRadius: 6, marginBottom: '0.375rem',
+              background: 'rgba(251,191,36,0.12)', color: '#fbbf24',
+              border: '1px solid rgba(251,191,36,0.25)',
             }}>
-              {pct}%
-            </span>
-            {s.collection && (
-              <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>
-                {s.collection}
-              </span>
-            )}
-          </div>
-        )
-      })}
+              ⚠ Alacsony bizonyossági szint — ajánlott emberi felülvizsgálat
+            </div>
+          )}
+          {!sources?.length ? (
+            <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic', padding: '0.25rem 0' }}>
+              Általános tudás alapján (nem talált releváns dokumentumot)
+            </div>
+          ) : sources.map((s, i) => {
+            const score = typeof s.score === 'number' ? s.score : 0
+            const pct   = Math.round(score * 100)
+            return (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: '0.625rem',
+                padding: '0.375rem 0.625rem', borderRadius: 6,
+                background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+              }}>
+                <span style={{ fontSize: 12, color: '#94a3b8', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  📄 {s.filename || s.file || '—'}
+                </span>
+                <div style={{ width: 60, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }}>
+                  <div style={{ width: `${pct}%`, height: '100%', borderRadius: 2, background: confColor(score), transition: 'width 0.3s' }} />
+                </div>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
+                  color: confColor(score), background: confBg(score),
+                  padding: '1px 5px', borderRadius: 4, flexShrink: 0,
+                }}>
+                  {pct}%
+                </span>
+                {s.collection && (
+                  <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace', flexShrink: 0 }}>
+                    {s.collection}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -395,6 +516,9 @@ export default function ApprovalPage() {
                 </div>
               </div>
 
+              {/* Entitás panel */}
+              <EntityPanel email={selected} />
+
               {/* AI válasz javaslat */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
@@ -439,18 +563,8 @@ export default function ApprovalPage() {
                 />
               </div>
 
-              {/* RAG forrás dokumentumok */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>
-                  Tudásbázis forrás
-                  {selected.rag_confidence != null && (
-                    <span style={{ marginLeft: 8, fontWeight: 400, textTransform: 'none', color: confColor(selected.rag_confidence) }}>
-                      {Math.round(selected.rag_confidence * 100)}% relevancia
-                    </span>
-                  )}
-                </div>
-                <RagSources sources={selected.rag_sources} />
-              </div>
+              {/* RAG forrás dokumentumok — collapsible */}
+              <SourceTrustPanel sources={selected.rag_sources} confidence={selected.rag_confidence} />
             </div>
 
             {/* ── Akció gombok ── */}

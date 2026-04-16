@@ -98,6 +98,89 @@ async def apply_template(
     }
 
 
+@router.post("/seed-accounting")
+async def seed_accounting_templates(current_user: dict = Depends(get_current_user)):
+    """
+    Seeds the 9 Hungarian accounting firm (könyvelőiroda) templates.
+    Idempotent — skips existing ones by name + category.
+    """
+    import uuid as _uuid
+
+    templates = [
+        ("Dokumentum beérkezett", "accounting",
+         "Visszaigazolás, hogy megkaptuk az ügyfél dokumentumát.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["általános","visszaigazolás","dokumentum"],
+          "body":"Tisztelt Ügyfelünk!\n\nKöszönjük, hogy eljuttatta hozzánk a dokumentumot. Rögzítettük a beérkező iratot, és munkatársunk hamarosan feldolgozza.\n\nAmint az ügyintézés megtörtént, értesítjük Önt az eredményről. Kérdés esetén állunk rendelkezésére.\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("Hiányos dokumentáció", "accounting",
+         "Értesítés, hogy hiányoznak dokumentumok.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["általános","hiányos","dokumentum"],
+          "body":"Tisztelt Ügyfelünk!\n\nKöszönjük megkeresését. Megvizsgálva az Ön által beküldött anyagokat, sajnálattal tájékoztatjuk, hogy az ügyintézés megkezdéséhez az alábbi dokumentumok még szükségesek:\n\n• [ --- kérem töltse ki a hiányzó dokumentumok listáját --- ]\n\nKérjük, az említett iratokat mielőbb juttassa el irodánkba.\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("Határidő emlékeztető", "accounting",
+         "Közeledő adóbevallási határidőről szóló emlékeztető.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["általános","határidő","adó","emlékeztető"],
+          "body":"Tisztelt Ügyfelünk!\n\nEzúton szeretnénk felhívni figyelmét, hogy közeledik az {adónem} bevallásának benyújtási határideje: {határidő}.\n\nKérjük, hogy a szükséges bizonylatokat legkésőbb {dokumentum_határidő}-ig juttassa el irodánkba.\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("Számla beérkezett", "accounting",
+         "Visszaigazolás számla beérkezéséről, következő lépések.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["számla","pénzügy","visszaigazolás"],
+          "body":"Tisztelt Ügyfelünk!\n\nKöszönjük, hogy megküldte a számlát. Irodánk rögzítette a beérkező dokumentumot és az alábbi lépéseket tesszük:\n\n1. Ellenőrizzük a számla adatainak helyességét\n2. Rögzítjük a főkönyvi rendszerbe\n3. Szükség esetén jelezzük, ha korrekció szükséges\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("Számlakorrekció szükséges", "accounting",
+         "Értesítés problémáról a beküldött számlán.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["számla","korrekció","hiba"],
+          "body":"Tisztelt Ügyfelünk!\n\nMegvizsgálva az Ön által megküldött számlát, az alábbi eltérést azonosítottuk:\n\n{problema_leirasa}\n\nKérjük, intézkedjen a szükséges korrekció elvégzéséről.\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("Díjbekérő válasz", "accounting",
+         "Standard válasz díjbekérőre vonatkozó kérdésekre.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["számla","díjbekérő","fizetés"],
+          "body":"Tisztelt Ügyfelünk!\n\nKöszönjük megkeresését a díjbekérővel kapcsolatban.\n\nFizetési lehetőségek:\n• Banki átutalás: {bankszamla_szam}\n• Fizetési határidő: {fizetesi_hatarido} nap\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("NAV levél átadva", "accounting",
+         "Jelzés hogy NAV levelet kaptunk, könyvelő vizsgálja.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["NAV","adóhatóság","értesítés"],
+          "body":"Tisztelt Ügyfelünk!\n\nTájékoztatjuk, hogy irodánkhoz NAV megkeresés érkezett az Ön vállalkozásával kapcsolatban.\n\nA levelet átadtuk illetékes könyvelőjének, aki megvizsgálja és hamarosan felveszi Önnel a kapcsolatot.\n\nFontos: NAV-os levelekre határidőn belül kell reagálni.\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("Adóbevallás státusz", "accounting",
+         "Általános státuszválasz az adóbevallás elkészítéséről.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["adóbevallás","státusz","NAV"],
+          "body":"Tisztelt Ügyfelünk!\n\nKöszönjük érdeklődését az adóbevallással kapcsolatban.\n\nTájékoztatjuk, hogy az Ön {adoev}. évi {adonem} bevallásának státusza: {status}.\n\nKérdés esetén kollégáink rendelkezésére állnak.\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+        ("Adatigénylés visszaigazolás", "accounting",
+         "Standard visszaigazolás adatigénylési kérésre.",
+         {"reply_style":"formal","language":"hu","confidence_threshold":0.72,
+          "tags":["adatigénylés","visszaigazolás","GDPR"],
+          "body":"Tisztelt Ügyfelünk!\n\nKöszönjük adatigénylési kérelmét, amelyet {datum}-án vettünk nyilvántartásba.\n\nFeldolgozási idő: legfeljebb 30 nap (GDPR előírások szerint).\n\nÜdvözlettel,\n{cegnev} könyvelőiroda"}),
+    ]
+
+    created = 0
+    skipped = 0
+    tenant_id = current_user.get("tenant_id")
+
+    for name, category, description, config in templates:
+        existing = await db.fetchrow(
+            "SELECT id FROM agent_templates WHERE name=$1 AND category=$2", name, category
+        )
+        if existing:
+            skipped += 1
+            continue
+        await db.execute(
+            """INSERT INTO agent_templates (id, name, category, description, config, is_default)
+               VALUES ($1, $2, $3, $4, $5, false)""",
+            _uuid.uuid4(), name, category, description, json.dumps(config)
+        )
+        created += 1
+
+    await alog.insert_audit_log(
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
+        user_email=current_user.get("email"), action="seed_templates", entity_type="template",
+        entity_id=None, details={"created": created, "skipped": skipped, "pack": "accounting"},
+    )
+    log.info(f"Accounting templates seeded: created={created} skipped={skipped}")
+    return {"status": "ok", "created": created, "skipped": skipped, "pack": "accounting"}
+
+
 @config_router.get("/agent")
 async def get_agent_config(current_user: dict = Depends(get_current_user)):
     """

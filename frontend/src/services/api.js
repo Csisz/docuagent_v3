@@ -156,6 +156,32 @@ export const api = {
     req('/api/calendar/events', { method: 'POST', body: JSON.stringify(data) }),
   deleteCalendarEvent: (id) =>
     req(`/api/calendar/events/${id}`, { method: 'DELETE' }),
+
+  // ── Runs / Error Center ───────────────────────────────────
+  getFailedRuns: (limit = 50) =>
+    req(`/api/runs/failed?limit=${limit}`),
+  retryRun: (id) =>
+    req(`/api/runs/${id}/retry`, { method: 'POST' }),
+
+  // ── Usage / Metering ──────────────────────────────────────
+  getUsageSummary: () =>
+    req('/api/usage'),
+
+  // ── Invoice workflow ──────────────────────────────────────
+  extractInvoice: (emailId) =>
+    req('/api/invoice-workflow/extract', { method: 'POST', body: JSON.stringify({ email_id: emailId }) }),
+  getInvoiceForEmail: (emailId) =>
+    req(`/api/invoice-workflow/email/${emailId}`),
+  verifyInvoice: (id, data) =>
+    req(`/api/invoice-workflow/${id}/verify`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // ── Senior approval ───────────────────────────────────────
+  getPendingSeniorApprovals: (limit = 50) => {
+    const q = new URLSearchParams({ limit, status: 'NEEDS_ATTENTION', senior_required: true })
+    return req(`/api/emails/approval-queue?${q}`)
+  },
+  seniorApprove: (emailId) =>
+    req(`/api/emails/${emailId}/approve`, { method: 'POST' }),
 }
 
 const API_KEY_STORAGE = 'docuagent_api_key'

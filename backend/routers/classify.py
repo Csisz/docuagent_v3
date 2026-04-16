@@ -22,10 +22,11 @@ v3.16 (Phase 4 Part 2):
 import asyncio
 import time
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from services import openai_service, learning_service
 from services.file_service import detect_language
 from services.policy_engine import get_policy
+from services.metering import check_quota, increment_usage
 import db.queries as q
 import db.run_queries as rq
 from models.schemas import (
@@ -87,6 +88,15 @@ async def classify_email(req: ClassifyRequest):
 
     t_start   = time.monotonic()
     tenant_id = req.tenant_id  # may be None for external callers
+
+    # ── Quota check ────────────────────────────────────────────
+    if tenant_id:
+        allowed, remaining = await check_quota(tenant_id, "emails")
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Havi email kvóta elérve. Kérjük lépjen magasabb csomagra.",
+            )
 
     # ── agent_run start ────────────────────────────────────────
     run_id = None
@@ -173,6 +183,10 @@ async def classify_email(req: ClassifyRequest):
         policy=policy,
         tenant_id=tenant_id,
     )
+
+    # ── Usage metering ─────────────────────────────────────────
+    if tenant_id:
+        await increment_usage(tenant_id, "emails_processed")
 
     # ── Finish run ─────────────────────────────────────────────
     latency_ms = int((time.monotonic() - t_start) * 1000)

@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse
 
 from core.config import PORT, ALLOWED_ORIGINS, UPLOAD_DIR
 import db.database as database
-from routers import auth, classify, emails, documents, dashboard, sla, chat, calendar, onboarding, templates, demo, agents, audit, crm, integrations, gateway
+from routers import auth, classify, emails, documents, dashboard, sla, chat, calendar, onboarding, templates, demo, agents, audit, crm, integrations, gateway, runs, invoice_workflow, metering
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,6 +70,9 @@ app.include_router(demo.router)
 app.include_router(crm.router)
 app.include_router(integrations.router)
 app.include_router(gateway.router)
+app.include_router(runs.router)
+app.include_router(invoice_workflow.router)
+app.include_router(metering.router)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

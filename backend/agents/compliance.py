@@ -21,6 +21,7 @@ class ComplianceDecision:
     status: str                 # "AI_ANSWERED" | "NEEDS_ATTENTION"
     veto_reason: Optional[str] = None
     domain_tag: Optional[str] = None   # "tax" | "invoice" | None
+    senior_required: bool = False
 
 
 def _contains_keywords(text: str, keywords: list) -> bool:
@@ -50,6 +51,13 @@ def evaluate(
     complaint_auto_reply = policy.get("complaint_auto_reply", False)
     tax_routing = policy.get("tax_routing_enabled", True)
     invoice_routing = policy.get("invoice_routing_enabled", True)
+    senior_review_categories = policy.get("senior_review_categories", [])
+    if isinstance(senior_review_categories, str):
+        import json as _json
+        try:
+            senior_review_categories = _json.loads(senior_review_categories)
+        except Exception:
+            senior_review_categories = []
 
     full_text = f"{subject} {body or ''}"
 
@@ -107,8 +115,15 @@ def evaluate(
 
     # ── All clear ─────────────────────────────────────────────
     can = draft.can_answer
+
+    # Senior review check: certain categories always need a senior
+    senior_required = bool(
+        senior_review_categories and draft.category in senior_review_categories
+    )
+
     return ComplianceDecision(
         can_answer=can,
         status="AI_ANSWERED" if can else "NEEDS_ATTENTION",
         domain_tag=domain_tag,
+        senior_required=senior_required,
     )

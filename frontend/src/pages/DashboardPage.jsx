@@ -1,4 +1,5 @@
 import { useStore } from '../store'
+import { useAuth } from '../context/AuthContext'
 import { Chip, Skeleton } from '../components/ui'
 import { Bar, Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, BarController,
@@ -70,6 +71,7 @@ function SortableBlock({ id, anyDragging, children }) {
 
 export default function DashboardPage() {
   const { dashData } = useStore()
+  const { user } = useAuth()
   const d = dashData
   const [layout, setLayout]     = useState(DEFAULT_LAYOUT)
   const [activeId, setActiveId] = useState(null)
@@ -266,6 +268,9 @@ export default function DashboardPage() {
           )}
         </DragOverlay>
       </DndContext>
+
+      {/* Usage section — admin only */}
+      {user?.role === 'admin' && <UsageCard />}
     </div>
   )
 }
@@ -761,6 +766,73 @@ function SystemStatus() {
           n8n ↗
         </button>
         <button className="btn-ghost text-[11px] px-3 py-1.5" onClick={()=>window.location.reload()}>↻ Sync</button>
+      </div>
+    </div>
+  )
+}
+
+function UsageCard() {
+  const [usage, setUsage] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getUsageSummary()
+      .then(setUsage)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return null
+  if (!usage)  return null
+
+  const plan = usage.plan || 'starter'
+  const planLabel = { starter: 'Starter', pro: 'Pro', enterprise: 'Enterprise' }[plan] || plan
+
+  function UsageBar({ label, used, limit }) {
+    const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
+    const color = pct > 90 ? '#f87171' : pct > 70 ? '#fbbf24' : '#4ade80'
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>{label}</span>
+          <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'monospace' }}>
+            {used.toLocaleString()} {limit > 0 ? `/ ${limit.toLocaleString()}` : '(korlátlan)'}
+          </span>
+        </div>
+        {limit > 0 && (
+          <div style={{ height: 5, background: 'rgba(255,255,255,0.07)', borderRadius: 3 }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 3, transition: 'width 0.4s' }} />
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="glass-card" style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div>
+          <h3 className="text-[13px] font-semibold">Használat és korlátok</h3>
+          <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+            {usage.period_start?.slice(0,7)} · Csomag: <span style={{ color: '#818cf8' }}>{planLabel}</span>
+          </p>
+        </div>
+        <a
+          href="/integrations"
+          style={{
+            fontSize: 11, fontWeight: 600, color: '#818cf8',
+            background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)',
+            borderRadius: 6, padding: '4px 12px', textDecoration: 'none',
+          }}
+        >
+          Csomag frissítése →
+        </a>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 32px' }}>
+        <UsageBar label="Feldolgozott emailek" used={usage.emails_processed || 0} limit={usage.emails_limit || 0} />
+        <UsageBar label="AI hívások"           used={usage.ai_calls || 0}         limit={usage.ai_calls_limit || 0} />
+        <UsageBar label="Dokumentumok"         used={usage.documents_stored || 0} limit={usage.documents_limit || 0} />
+        <UsageBar label="Tárolt visszajelzések" used={usage.feedback_stored || 0} limit={0} />
       </div>
     </div>
   )

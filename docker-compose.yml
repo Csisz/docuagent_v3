@@ -53,6 +53,19 @@ services:
     networks:
       - docuagent
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - docuagent
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -65,12 +78,38 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - QDRANT_URL=http://qdrant:6333
       - N8N_BASE_URL=http://n8n:5678
+      - REDIS_URL=redis://redis:6379
     volumes:
       - ./backend/uploads:/app/uploads
     networks:
       - docuagent
     depends_on:
       postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python -m arq workers.main.WorkerSettings
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./backend/uploads:/app/uploads
+    networks:
+      - docuagent
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       qdrant:
         condition: service_started
@@ -93,6 +132,7 @@ volumes:
   postgres_data:
   n8n_data:
   qdrant_data:
+  redis_data:
 
 networks:
   docuagent:

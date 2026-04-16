@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import clsx from 'clsx'
 import { useStore } from '../../store'
-import { getApiKey, setApiKey } from '../../services/api'
+import { getApiKey, setApiKey, api } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 
 const NAV = [
@@ -47,6 +47,7 @@ const NAV = [
     section: 'Beállítások',
     items: [
       { to: '/integrations', label: 'Integrációk',   icon: IntegrationsIcon },
+      { to: '/errors',       label: 'Hibák',          icon: ErrorIcon, badge: 'nb-errors' },
     ]
   },
 ]
@@ -56,7 +57,14 @@ export default function Sidebar() {
   const { user, tenant, logout, onboardingDone } = useAuth()
   const [showApiModal, setShowApiModal] = useState(false)
   const [apiKeyInput, setApiKeyInput]   = useState('')
+  const [errorCount, setErrorCount]     = useState(0)
   const apiKeySet = !!getApiKey()
+
+  useEffect(() => {
+    api.getFailedRuns(100)
+      .then(d => setErrorCount(d.count || 0))
+      .catch(() => {})
+  }, [])
 
   function openApiModal() {
     setApiKeyInput(getApiKey())
@@ -72,7 +80,7 @@ export default function Sidebar() {
   const attCount = dashData?.status_breakdown?.NEEDS_ATTENTION || 0
   const totalCount = dashData?.kpis?.emails?.value || 0
 
-  const badges = { 'nb-total': totalCount, 'nb-att': attCount }
+  const badges = { 'nb-total': totalCount, 'nb-att': attCount, 'nb-errors': errorCount }
 
   return (
     <>
@@ -308,4 +316,7 @@ function CrmIcon({ className }) {
 }
 function IntegrationsIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="3" cy="7" r="2"/><circle cx="11" cy="3" r="2"/><circle cx="11" cy="11" r="2"/><path d="M5 7h3M9 4.5L5.5 6.5M9 9.5L5.5 7.5"/></svg>
+}
+function ErrorIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="7" cy="7" r="6"/><path d="M7 4v3.5M7 10h.01"/></svg>
 }

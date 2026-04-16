@@ -17,6 +17,7 @@ import AgentsPage       from './pages/AgentsPage'
 import AuditPage        from './pages/AuditPage'
 import CrmPage            from './pages/CrmPage'
 import IntegrationsPage   from './pages/IntegrationsPage'
+import ErrorCenterPage    from './pages/ErrorCenterPage'
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
               <Route path="/audit"       element={<AuditPage />} />
               <Route path="/crm"             element={<CrmPage />} />
               <Route path="/integrations"   element={<IntegrationsPage />} />
+              <Route path="/errors"          element={<ErrorCenterPage />} />
               <Route path="*"            element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

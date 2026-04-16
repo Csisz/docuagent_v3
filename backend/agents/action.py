@@ -151,6 +151,15 @@ async def execute(
                 urgency_score=out.urgency_score,
                 sentiment=out.sentiment,
             )
+            # Propagate senior_required flag to emails table
+            if compliance.senior_required:
+                try:
+                    await _db.execute(
+                        "UPDATE emails SET senior_required=TRUE WHERE id=$1",
+                        email_id,
+                    )
+                except Exception:
+                    pass
             result.email_updated = True
         except Exception as e:
             log.error(f"Action DB update failed: {e}")

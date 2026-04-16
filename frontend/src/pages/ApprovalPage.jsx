@@ -211,12 +211,170 @@ function SourceTrustPanel({ sources, confidence }) {
   )
 }
 
+// ── Számla kinyerés kártya ────────────────────────────────────
+function InvoiceCard({ emailId, toast }) {
+  const [extraction, setExtraction] = useState(null)
+  const [loading,    setLoading]    = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [edit,       setEdit]       = useState({})
+  const [loaded,     setLoaded]     = useState(false)
+
+  useEffect(() => {
+    setExtraction(null)
+    setLoaded(false)
+    setEdit({})
+    api.getInvoiceForEmail(emailId)
+      .then(d => {
+        if (d.extraction) {
+          setExtraction(d.extraction)
+          setEdit(d.extraction)
+        }
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+  }, [emailId])
+
+  async function handleExtract() {
+    setLoading(true)
+    try {
+      const d = await api.extractInvoice(emailId)
+      setExtraction(d.extraction)
+      setEdit(d.extraction || {})
+      toast && toast('Számla adatok kinyerve ✓', 'ok')
+    } catch (e) {
+      toast && toast(e.message || 'Kinyerés sikertelen', 'err')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSave() {
+    if (!extraction?.id) return
+    setSaving(true)
+    try {
+      const d = await api.verifyInvoice(extraction.id, {
+        invoice_number: edit.invoice_number || null,
+        vendor_name: edit.vendor_name || null,
+        amount: edit.amount ? parseFloat(edit.amount) : null,
+        currency: edit.currency || 'HUF',
+        due_date: edit.due_date || null,
+        issue_date: edit.issue_date || null,
+        vat_amount: edit.vat_amount ? parseFloat(edit.vat_amount) : null,
+      })
+      setExtraction(d.extraction)
+      toast && toast('Számla adatok mentve ✓', 'ok')
+    } catch (e) {
+      toast && toast(e.message || 'Mentés sikertelen', 'err')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!loaded) return null
+
+  const hasInvoice = !!extraction
+
+  return (
+    <div style={{
+      border: '1px solid rgba(96,165,250,0.2)',
+      borderRadius: 8, background: 'rgba(96,165,250,0.04)',
+      overflow: 'hidden',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0.625rem 0.875rem',
+        borderBottom: hasInvoice ? '1px solid rgba(96,165,250,0.15)' : 'none',
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+          Számla adatok
+          {extraction?.status === 'verified' && (
+            <span style={{ marginLeft: 8, color: '#4ade80', fontSize: 10 }}>● Ellenőrzött</span>
+          )}
+        </div>
+        <button
+          onClick={handleExtract}
+          disabled={loading}
+          style={{
+            fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 5, cursor: loading ? 'not-allowed' : 'pointer',
+            background: 'rgba(96,165,250,0.15)', color: '#60a5fa',
+            border: '1px solid rgba(96,165,250,0.3)',
+          }}
+        >
+          {loading ? '⏳ Kinyerés...' : hasInvoice ? '↻ Újrakinyerés' : '🔍 Számla kinyerése'}
+        </button>
+      </div>
+
+      {hasInvoice && (
+        <div style={{ padding: '0.75rem 0.875rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1rem', marginBottom: '0.75rem' }}>
+            {[
+              { key: 'invoice_number', label: 'Számlaszám' },
+              { key: 'vendor_name',    label: 'Kibocsátó' },
+              { key: 'amount',         label: 'Összeg' },
+              { key: 'currency',       label: 'Deviza' },
+              { key: 'due_date',       label: 'Fizetési határidő' },
+              { key: 'issue_date',     label: 'Kiállítás dátuma' },
+              { key: 'vat_amount',     label: 'ÁFA összeg' },
+            ].map(({ key, label }) => (
+              <div key={key}>
+                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 2 }}>{label}</div>
+                <input
+                  value={edit[key] ?? ''}
+                  onChange={e => setEdit(prev => ({ ...prev, [key]: e.target.value }))}
+                  placeholder="—"
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(96,165,250,0.2)',
+                    borderRadius: 5, padding: '4px 8px', fontSize: 12, color: '#e2e8f0',
+                    outline: 'none', fontFamily: 'monospace',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+          {extraction.confidence != null && (
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: '0.5rem' }}>
+              AI bizonyossági szint: {Math.round(extraction.confidence * 100)}%
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                flex: 1, padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                cursor: saving ? 'not-allowed' : 'pointer',
+                background: 'rgba(74,222,128,0.15)', color: '#4ade80',
+                border: '1px solid rgba(74,222,128,0.3)',
+              }}
+            >
+              {saving ? '⏳ Mentés...' : '💾 Mentés'}
+            </button>
+            <button
+              disabled
+              title="Billingo integráció — Phase 7"
+              style={{
+                flex: 1, padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                cursor: 'not-allowed',
+                background: 'rgba(255,255,255,0.04)', color: '#475569',
+                border: '1px solid rgba(255,255,255,0.1)',
+              }}
+            >
+              📤 Küldés Billingo-ba (hamarosan)
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════════════════════
 // FŐ KOMPONENS
 // ══════════════════════════════════════════════════════════════
 export default function ApprovalPage() {
   const { theme } = useStore()
-  const { isDemo } = useAuth()
+  const { isDemo, user } = useAuth()
   const toast = useToast()
 
   const [emails,   setEmails]   = useState([])
@@ -226,6 +384,8 @@ export default function ApprovalPage() {
   const [replyTxt, setReplyTxt] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [acting,   setActing]   = useState(false)  // action in flight
+
+  const isAdmin = user?.role === 'admin'
 
   // CRM case link modal
   const [showLinkModal, setShowLinkModal]   = useState(false)
@@ -469,6 +629,16 @@ export default function ApprovalPage() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
                   <UrgencyChip score={selected.urgency_score} urgent={selected.urgent} />
+                  {selected.senior_required && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+                      background: 'rgba(167,139,250,0.15)', color: '#a78bfa',
+                      border: '1px solid rgba(167,139,250,0.35)',
+                      textTransform: 'uppercase', letterSpacing: '0.07em',
+                    }}>
+                      ⭐ Senior jóváhagyás szükséges
+                    </span>
+                  )}
                   <span style={{
                     fontSize: 10, padding: '2px 7px', borderRadius: 4,
                     background: confBg(selected.confidence),
@@ -565,6 +735,9 @@ export default function ApprovalPage() {
 
               {/* RAG forrás dokumentumok — collapsible */}
               <SourceTrustPanel sources={selected.rag_sources} confidence={selected.rag_confidence} />
+
+              {/* Invoice extraction card */}
+              <InvoiceCard emailId={selected.id} toast={toast} />
             </div>
 
             {/* ── Akció gombok ── */}
@@ -573,20 +746,32 @@ export default function ApprovalPage() {
               display: 'flex', gap: '0.625rem', flexWrap: 'wrap',
             }}>
               {/* Jóváhagyás */}
-              <button
-                onClick={editMode ? handleEditApprove : handleApprove}
-                disabled={acting || (!editMode && !selected.ai_response) || (editMode && !replyTxt.trim())}
-                style={{
+              {selected.senior_required && !isAdmin ? (
+                <div style={{
                   flex: 1, minWidth: 120, padding: '0.625rem 1rem',
-                  borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  background: acting ? 'rgba(74,222,128,0.25)' : 'rgba(74,222,128,0.15)',
-                  color: '#4ade80', border: '1px solid rgba(74,222,128,0.35)',
-                  opacity: (acting || (!editMode && !selected.ai_response) || (editMode && !replyTxt.trim())) ? 0.5 : 1,
-                  transition: 'opacity 0.15s',
-                }}
-              >
-                {acting ? '⏳ Küldés...' : editMode ? '✏ Szerkesztve küld' : '✓ Jóváhagyás + Küldés'}
-              </button>
+                  borderRadius: 8, fontSize: 12, fontWeight: 600,
+                  background: 'rgba(167,139,250,0.08)', color: '#a78bfa',
+                  border: '1px solid rgba(167,139,250,0.25)',
+                  textAlign: 'center',
+                }}>
+                  ⭐ Senior jóváhagyás szükséges
+                </div>
+              ) : (
+                <button
+                  onClick={editMode ? handleEditApprove : handleApprove}
+                  disabled={acting || (!editMode && !selected.ai_response) || (editMode && !replyTxt.trim())}
+                  style={{
+                    flex: 1, minWidth: 120, padding: '0.625rem 1rem',
+                    borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: acting ? 'rgba(74,222,128,0.25)' : 'rgba(74,222,128,0.15)',
+                    color: '#4ade80', border: '1px solid rgba(74,222,128,0.35)',
+                    opacity: (acting || (!editMode && !selected.ai_response) || (editMode && !replyTxt.trim())) ? 0.5 : 1,
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  {acting ? '⏳ Küldés...' : editMode ? '✏ Szerkesztve küld' : '✓ Jóváhagyás + Küldés'}
+                </button>
+              )}
 
               {/* Szerkesztés toggle (ha nem edit módban) */}
               {!editMode && (

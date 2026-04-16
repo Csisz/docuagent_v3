@@ -140,12 +140,35 @@ async def upload_doc(
             input_summary=f"{file.filename} ({size_kb}KB, tag={tag})",
         )
 
-        # Schedule background processing
-        background_tasks.add_task(
-            _ingest_background,
-            doc_id, dest, file.filename, tag, department,
-            access_level, uploader_email, tenant_id, run_id,
-        )
+        # Try arq queue first, fall back to BackgroundTasks
+        _enqueued_via_arq = False
+        try:
+            import os as _os
+            _redis_url = _os.getenv("REDIS_URL", "")
+            if _redis_url:
+                from arq import create_pool
+                from arq.connections import RedisSettings
+                _url = _redis_url.replace("redis://", "")
+                _hp = _url.split("/")[0].split(":")
+                _rs = RedisSettings(host=_hp[0], port=int(_hp[1]) if len(_hp) > 1 else 6379)
+                _pool = await create_pool(_rs)
+                await _pool.enqueue_job(
+                    "process_document",
+                    doc_id, tenant_id, str(dest), file.filename,
+                    tag, department, access_level, uploader_email, run_id,
+                )
+                await _pool.aclose()
+                _enqueued_via_arq = True
+                log.info(f"Upload enqueued via arq: {file.filename} run_id={run_id}")
+        except Exception as _arq_err:
+            log.warning(f"arq enqueue failed, falling back to BackgroundTasks: {_arq_err}")
+
+        if not _enqueued_via_arq:
+            background_tasks.add_task(
+                _ingest_background,
+                doc_id, dest, file.filename, tag, department,
+                access_level, uploader_email, tenant_id, run_id,
+            )
 
     await alog.insert_audit_log(
         tenant_id=tenant_id, user_id=current_user.get("user_id"),

@@ -172,30 +172,50 @@ async def get_approval_queue_count(tenant_id: Optional[str] = None) -> int:
 # ══════════════════════════════════════════════════════════════
 
 async def insert_feedback(email_id: str, ai_decision: str,
-                           user_decision: str, note: str):
+                           user_decision: str, note: str,
+                           tenant_id: Optional[str] = None):
+    """Feedback mentése. tenant_id opcionális — ha megadva, a feedback közvetlenül is
+    tenant-hoz van kötve (a JOIN úgyis elvégzi a scoping-ot lekérdezéskor)."""
     return await db.execute(
-        "INSERT INTO feedback(email_id, ai_decision, user_decision, note) VALUES($1,$2,$3,$4)",
-        email_id, ai_decision, user_decision, note
+        """INSERT INTO feedback(email_id, ai_decision, user_decision, note, tenant_id)
+           VALUES($1,$2,$3,$4,$5)""",
+        email_id, ai_decision, user_decision, note, tenant_id
     )
 
 
-async def get_recent_feedback(limit: int = 30):
-    """Visszaadja a legutóbbi feedback sorokat az emailek adataival együtt."""
+async def get_recent_feedback(limit: int = 30, tenant_id: Optional[str] = None):
+    """Legutóbbi feedback sorok az emailek adataival együtt, tenant-ra szűrve."""
+    if tenant_id:
+        return await db.fetch(
+            """SELECT e.subject, e.body, e.category, f.user_decision, f.ai_decision
+               FROM feedback f JOIN emails e ON e.id = f.email_id
+               WHERE e.tenant_id = $2
+               ORDER BY f.created_at DESC LIMIT $1""",
+            limit, tenant_id,
+        )
     return await db.fetch(
         """SELECT e.subject, e.body, e.category, f.user_decision, f.ai_decision
            FROM feedback f JOIN emails e ON e.id = f.email_id
            ORDER BY f.created_at DESC LIMIT $1""",
-        limit
+        limit,
     )
 
 
-async def get_feedback_for_prompt(limit: int = 10):
-    """Rövid lista a prompt kontextushoz."""
+async def get_feedback_for_prompt(limit: int = 10, tenant_id: Optional[str] = None):
+    """Rövid lista a prompt kontextushoz, tenant-ra szűrve."""
+    if tenant_id:
+        return await db.fetch(
+            """SELECT f.ai_decision, f.user_decision, e.subject, e.category
+               FROM feedback f JOIN emails e ON e.id = f.email_id
+               WHERE e.tenant_id = $2
+               ORDER BY f.created_at DESC LIMIT $1""",
+            limit, tenant_id,
+        )
     return await db.fetch(
         """SELECT f.ai_decision, f.user_decision, e.subject, e.category
            FROM feedback f JOIN emails e ON e.id = f.email_id
            ORDER BY f.created_at DESC LIMIT $1""",
-        limit
+        limit,
     )
 
 
@@ -232,6 +252,17 @@ async def get_document_by_id(doc_id: str):
 async def soft_delete_document(doc_id: str):
     return await db.execute(
         "UPDATE documents SET deleted_at=NOW() WHERE id=$1", doc_id
+    )
+
+
+async def update_document_qdrant_status(doc_id: str, qdrant_ok: bool,
+                                         collection: str, lang: str):
+    """Background ingest tasz után frissíti a dokumentum Qdrant státuszát és nyelvét."""
+    return await db.execute(
+        """UPDATE documents
+           SET qdrant_ok=$2, qdrant_collection=$3, lang=$4
+           WHERE id=$1""",
+        doc_id, qdrant_ok, collection, lang,
     )
 
 

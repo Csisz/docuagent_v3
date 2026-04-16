@@ -1,6 +1,11 @@
 """
 Email osztályozás és válaszgenerálás.
 
+v3.4 változások:
+  - Feedback tenant isolation: get_feedback_context() kap tenant_id-t
+  - agent_runs: minden classify és reply_generate fut loggolva
+  - tenant_id a ClassifyRequest.tenant_id mezőből jön (ingest pipeline állítja be)
+
 v3.3 változások:
   - Email-specifikus prompt optimalizálás: ügyfélszolgálati kontextus,
     pontosabb kategóriák, hangnem szabályok
@@ -15,6 +20,7 @@ from fastapi import APIRouter
 from services import openai_service, learning_service
 from services.file_service import detect_language
 import db.queries as q
+import db.run_queries as rq
 from models.schemas import (
     ClassifyRequest, ClassifyResponse, ReplyRequest,
     EmailCategory, EmailStatus, AiDecision
@@ -95,7 +101,23 @@ async def classify_email(req: ClassifyRequest):
             status=EmailStatus.NEEDS_ATTENTION
         )
 
-    feedback_ctx, forced, sim = await learning_service.get_feedback_context(req.subject, req.body)
+    t_start   = time.monotonic()
+    tenant_id = req.tenant_id  # may be None for external callers
+
+    # ── agent_run start ────────────────────────────────────────
+    run_id = None
+    if tenant_id:
+        run_id = await rq.create_run(
+            tenant_id=tenant_id,
+            trigger_type="email_classify",
+            trigger_ref=req.email_id,
+            input_summary=f"Subject: {req.subject[:80]}",
+        )
+
+    # ── Feedback context (tenant-scoped) ───────────────────────
+    feedback_ctx, forced, sim = await learning_service.get_feedback_context(
+        req.subject, req.body, tenant_id=tenant_id
+    )
 
     # ── Tanult override ────────────────────────────────────────
     if forced and sim >= learning_service.EMBED_OVERRIDE_THRESHOLD:
@@ -109,6 +131,10 @@ async def classify_email(req: ClassifyRequest):
             await q.update_email_classification(
                 req.email_id, cat.value, status.value, decision.model_dump(), conf
             )
+        if run_id:
+            await rq.finish_run(run_id, "success",
+                                latency_ms=int((time.monotonic() - t_start) * 1000),
+                                result_summary=f"learned_override → {status.value} sim={sim:.2f}")
         log.info(f"Classify LEARNED: {req.subject[:40]} → {status} sim={sim:.3f}")
         return ClassifyResponse(can_answer=can, confidence=conf, category=cat,
                                 reason=f"Tanult egyezés ({sim:.0%})",
@@ -124,6 +150,7 @@ async def classify_email(req: ClassifyRequest):
             [{"role": "system", "content": sys_prompt},
              {"role": "user",   "content": f"Subject: {req.subject}\n\n{req.body[:3000]}"}],
             max_tokens=300, json_mode=True, task_type="classify",
+            tenant_id=tenant_id,
         )
         p      = json.loads(raw)
         can    = bool(p.get("can_answer", False))
@@ -135,7 +162,6 @@ async def classify_email(req: ClassifyRequest):
         sentiment     = p.get("sentiment", "neutral")
         if sentiment not in ("positive", "neutral", "negative", "angry"):
             sentiment = "neutral"
-        # Appointment → always needs human handling
         if cat == EmailCategory.APPOINTMENT:
             can = False
         status = EmailStatus.AI_ANSWERED if (can and conf >= CONF_THRESHOLD) else EmailStatus.NEEDS_ATTENTION
@@ -148,6 +174,10 @@ async def classify_email(req: ClassifyRequest):
                 urgency_score=urgency_score, sentiment=sentiment
             )
 
+        if run_id:
+            await rq.finish_run(run_id, "success",
+                                latency_ms=int((time.monotonic() - t_start) * 1000),
+                                result_summary=f"{status.value} conf={conf} urgency={urgency_score}")
         log.info(f"Classify GPT: '{req.subject[:40]}' → {status.value} conf={conf} urgency={urgency_score} sentiment={sentiment} booking={booking_intent}")
         return ClassifyResponse(can_answer=can, confidence=conf, category=cat,
                                 reason=reason, status=status,
@@ -155,6 +185,10 @@ async def classify_email(req: ClassifyRequest):
                                 booking_intent=booking_intent)
 
     except Exception as e:
+        if run_id:
+            await rq.finish_run(run_id, "failed",
+                                latency_ms=int((time.monotonic() - t_start) * 1000),
+                                error_message=str(e))
         log.error(f"Classify error: {e}")
         return ClassifyResponse(
             can_answer=False, confidence=0.0, category=EmailCategory.OTHER,
@@ -171,6 +205,11 @@ async def generate_reply(req: ReplyRequest):
     t_start  = time.monotonic()
     lang     = req.language or detect_language(req.body or req.subject)
     lang_instr = _LANG_INSTRUCTION.get(lang, _LANG_INSTRUCTION["HU"])
+
+    # ── agent_run start ────────────────────────────────────────
+    # ReplyRequest doesn't carry tenant_id (called from emails.py pipeline)
+    # We skip agent_runs logging for generate_reply since tenant_id isn't available here
+    # This will be addressed when emails.py is updated in a future phase
 
     sys_prompt = _REPLY_SYSTEM.format(
         COMPANY_NAME=COMPANY_NAME,
@@ -196,13 +235,12 @@ async def generate_reply(req: ReplyRequest):
     if req.email_id:
         await q.update_email_reply(req.email_id, reply)
 
-    # Logolás rag_logs-ba (email válasz is naplózva)
     await q.insert_rag_log(
         email_id=req.email_id,
         query=f"{req.subject}\n\n{(req.body or '')[:500]}",
         answer=reply,
         fallback_used=False,
-        confidence=1.0,   # generate-reply mindig fut, nincs threshold
+        confidence=1.0,
         source_docs=[],
         collection="email-reply",
         lang=lang,

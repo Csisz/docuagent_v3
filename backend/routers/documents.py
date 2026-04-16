@@ -1,20 +1,27 @@
 """
 Dokumentum feltöltés és RAG keresés.
 
+v3.4 változások:
+  - Tenant isolation: store_document() és delete_by_doc_id() kap tenant_id-t
+  - Async interface: az upload végpont azonnal visszatér, a Qdrant ingest
+    FastAPI BackgroundTasks-ban fut
+  - agent_runs: doc_ingest esemény loggolva (create_run / finish_run)
+  - GET /api/documents/{doc_id}/status: lekérdezhető az ingest státusza
+
 v3.3 változások:
   - Confidence scoring: ha top_score < RAG_FALLBACK_THRESHOLD → sablon válasz
   - Forrás-visszaadás: response tartalmazza [{filename, score, collection}]
   - Logolás: minden rag/query hívás bekerül a rag_logs táblába
   - Multi-collection: tag alapján kerül a megfelelő Qdrant collection-be
-  - Optimalizált prompt: ügyfélszolgálati hangnem, pontosabb kontextus
 """
 import time
 import uuid
 import logging
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 
 import db.queries as q
+import db.run_queries as rq
 import db.audit_queries as alog
 from models.schemas import RagRequest
 from services import openai_service, qdrant_service, file_service
@@ -44,8 +51,50 @@ Szabályok:
 - Ne hivatkozz a dokumentumok nevére vagy belső azonosítójára"""
 
 
+# ── Background ingest task ────────────────────────────────────
+
+async def _ingest_background(
+    doc_id: str,
+    dest: Path,
+    filename: str,
+    tag: str,
+    department: str,
+    access_level: str,
+    uploader_email: str,
+    tenant_id: str,
+    run_id: str,
+):
+    """
+    Background task: szöveget kibont a fájlból, feltölti Qdrant-ba,
+    majd frissíti a documents táblát és zárja az agent_run-t.
+    """
+    t_start = time.monotonic()
+    try:
+        text       = file_service.extract_text(dest)
+        lang       = file_service.detect_language(text)
+        qdrant_ok, collection = await qdrant_service.store_document(
+            doc_id, filename, text, tag, department, access_level, uploader_email, tenant_id
+        )
+        await q.update_document_qdrant_status(doc_id, qdrant_ok, collection, lang)
+        latency_ms = int((time.monotonic() - t_start) * 1000)
+        await rq.finish_run(
+            run_id,
+            status="success" if qdrant_ok else "failed",
+            latency_ms=latency_ms,
+            result_summary=f"{'OK' if qdrant_ok else 'FAIL'}: {filename} → {collection}",
+        )
+        log.info(f"Background ingest done: {filename} tenant={tenant_id[:8]} qdrant={qdrant_ok} {latency_ms}ms")
+    except Exception as e:
+        latency_ms = int((time.monotonic() - t_start) * 1000)
+        await rq.finish_run(run_id, "failed", latency_ms=latency_ms, error_message=str(e))
+        log.error(f"Background ingest failed for {filename}: {e}")
+
+
+# ── Upload ────────────────────────────────────────────────────
+
 @router.post("/upload")
 async def upload_doc(
+    background_tasks: BackgroundTasks,
     file:           UploadFile = File(...),
     uploader_name:  str = Form("Demo"),
     uploader_email: str = Form("demo@agentify.hu"),
@@ -54,7 +103,7 @@ async def upload_doc(
     access_level:   str = Form("employee"),
     current_user:   dict = Depends(get_current_user)
 ):
-    tenant_id = current_user.get("tenant_id")
+    tenant_id = current_user.get("tenant_id") or "global"
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(400, f"Nem támogatott formátum: {ext}")
@@ -64,47 +113,102 @@ async def upload_doc(
     dest     = UPLOAD_DIR / f"{uuid.uuid4().hex[:8]}_{file.filename}"
     dest.write_bytes(content)
 
-    text       = file_service.extract_text(dest)
-    lang       = file_service.detect_language(text)
-    doc_id     = str(uuid.uuid4())
-    qdrant_ok  = False
-    collection = "general"
-
-    if OPENAI_API_KEY:
-        qdrant_ok, collection = await qdrant_service.store_document(
-            doc_id, file.filename, text, tag, department, access_level, uploader_email
-        )
+    doc_id = str(uuid.uuid4())
 
     # Verziózás: ha ugyanolyan nevű fájl már létezik, töröld a régit
     existing = await q.get_document_by_filename(file.filename, tenant_id=tenant_id)
     if existing:
         old_collection = existing.get("qdrant_collection") or qdrant_service.tag_to_collection(existing.get("tag", "general"))
-        await qdrant_service.delete_by_doc_id(str(existing["id"]), old_collection)
+        await qdrant_service.delete_by_doc_id(str(existing["id"]), old_collection, tenant_id=tenant_id)
         await q.soft_delete_document(str(existing["id"]))
-        log.info(f"Document versioned: replaced {existing['id']} with new upload of {file.filename}")
+        log.info(f"Document versioned: replaced {existing['id']} with {doc_id} for {file.filename}")
 
+    # DB insert immediately (qdrant_ok=False until background finishes)
     await q.insert_document(
         doc_id, file.filename, uploader_name, uploader_email,
-        tag, department, access_level, size_kb, lang, qdrant_ok,
+        tag, department, access_level, size_kb, lang=None, qdrant_ok=False,
         tenant_id=tenant_id
     )
 
-    log.info(f"Uploaded: {file.filename} ({size_kb}KB, lang={lang}, collection={collection}, qdrant={qdrant_ok})")
+    # agent_run record
+    run_id = None
+    if OPENAI_API_KEY:
+        run_id = await rq.create_run(
+            tenant_id=tenant_id,
+            trigger_type="doc_ingest",
+            trigger_ref=doc_id,
+            input_summary=f"{file.filename} ({size_kb}KB, tag={tag})",
+        )
+
+        # Schedule background processing
+        background_tasks.add_task(
+            _ingest_background,
+            doc_id, dest, file.filename, tag, department,
+            access_level, uploader_email, tenant_id, run_id,
+        )
+
     await alog.insert_audit_log(
         tenant_id=tenant_id, user_id=current_user.get("user_id"),
         user_email=current_user.get("email"), action="upload", entity_type="document",
-        entity_id=doc_id, details={"filename": file.filename, "size_kb": size_kb, "lang": lang, "collection": collection},
+        entity_id=doc_id,
+        details={"filename": file.filename, "size_kb": size_kb, "tag": tag, "run_id": run_id},
     )
+
+    log.info(f"Upload accepted: {file.filename} ({size_kb}KB) → background ingest run_id={run_id}")
     return {
-        "status":     "ok",
-        "id":         doc_id,
-        "filename":   file.filename,
-        "size_kb":    size_kb,
-        "lang":       lang,
-        "collection": collection,
-        "qdrant":     qdrant_ok,
+        "status":   "processing",
+        "run_id":   run_id,
+        "doc_id":   doc_id,
+        "filename": file.filename,
+        "size_kb":  size_kb,
     }
 
+
+# ── Document ingest status ────────────────────────────────────
+
+@router.get("/documents/{doc_id}/status")
+async def get_document_status(
+    doc_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Visszaadja a dokumentum ingest státuszát az agent_runs tábla alapján.
+    A background task fut tovább, ez az endpoint polling-ra használható.
+    """
+    doc = await q.get_document_by_id(doc_id)
+    if not doc:
+        raise HTTPException(404, "Dokumentum nem található")
+
+    # Find the most recent doc_ingest run for this doc
+    try:
+        import db.database as _db
+        import uuid as _uuid
+        row = await _db.fetchrow(
+            """SELECT status, latency_ms, error_message, result_summary, created_at, finished_at
+               FROM agent_runs
+               WHERE trigger_ref = $1 AND trigger_type = 'doc_ingest'
+               ORDER BY created_at DESC LIMIT 1""",
+            _uuid.UUID(doc_id),
+        )
+    except Exception:
+        row = None
+
+    return {
+        "doc_id":       doc_id,
+        "filename":     doc["filename"],
+        "qdrant_ok":    doc["qdrant_ok"],
+        "lang":         doc.get("lang"),
+        "ingest_run": {
+            "status":         row["status"]         if row else "unknown",
+            "latency_ms":     row["latency_ms"]     if row else None,
+            "error_message":  row["error_message"]  if row else None,
+            "result_summary": row["result_summary"] if row else None,
+            "finished_at":    row["finished_at"].isoformat() if row and row["finished_at"] else None,
+        } if row else None,
+    }
+
+
+# ── RAG query ─────────────────────────────────────────────────
 
 @router.post("/rag/query")
 async def rag_query(req: RagRequest):
@@ -122,31 +226,29 @@ async def rag_query(req: RagRequest):
     if not OPENAI_API_KEY:
         return {"found": False, "answer": None, "error": "No API key"}
 
-    t_start     = time.monotonic()
-    email_id    = getattr(req, "email_id", None)
-    lang        = getattr(req, "language", "HU") or "HU"
+    t_start  = time.monotonic()
+    email_id = getattr(req, "email_id", None)
+    lang     = getattr(req, "language", "HU") or "HU"
 
-    # ── 1. Keresés (multi-collection) ─────────────────────────
+    # ── 1. Keresés (multi-collection, no tenant scope on public endpoint) ─
     try:
         results = await qdrant_service.search_multi(req.query)
     except Exception as e:
         log.warning(f"Qdrant query hiba: {e}")
         return {"found": False, "answer": None, "error": str(e)}
 
-    top_score    = results[0]["score"] if results else 0.0
+    top_score     = results[0]["score"] if results else 0.0
     fallback_used = (not results) or (top_score < RAG_FALLBACK_THRESHOLD)
 
-    # ── 2. Forrás-lista összeállítása ─────────────────────────
     source_docs = [
         {"filename": r["filename"], "score": r["score"], "collection": r["collection"]}
         for r in results
     ]
 
-    # ── 3a. Fallback: nincs elég biztos találat ───────────────
+    # ── 2a. Fallback ─────────────────────────────────────────
     if fallback_used:
         fallback_answer = _FALLBACK_BY_LANG.get(lang, FALLBACK_REPLY_HU)
         latency_ms = int((time.monotonic() - t_start) * 1000)
-
         await q.insert_rag_log(
             email_id=email_id, query=req.query, answer=fallback_answer,
             fallback_used=True, confidence=top_score,
@@ -163,7 +265,7 @@ async def rag_query(req: RagRequest):
             "latency_ms": latency_ms,
         }
 
-    # ── 3b. AI válasz a dokumentumok alapján ─────────────────
+    # ── 2b. AI válasz ─────────────────────────────────────────
     context_parts = []
     for r in results[:4]:
         context_parts.append(
@@ -186,10 +288,9 @@ async def rag_query(req: RagRequest):
         log.warning(f"RAG chat hiba: {e}")
         return {"found": False, "answer": None, "error": str(e)}
 
-    latency_ms = int((time.monotonic() - t_start) * 1000)
+    latency_ms     = int((time.monotonic() - t_start) * 1000)
     top_collection = results[0]["collection"] if results else "general"
 
-    # ── 4. Logolás ────────────────────────────────────────────
     await q.insert_rag_log(
         email_id=email_id, query=req.query, answer=answer,
         fallback_used=False, confidence=top_score,
@@ -212,6 +313,8 @@ async def rag_query(req: RagRequest):
     }
 
 
+# ── Delete ────────────────────────────────────────────────────
+
 @router.delete("/documents/{doc_id}")
 async def delete_document(
     doc_id: str,
@@ -222,9 +325,11 @@ async def delete_document(
     if not doc:
         raise HTTPException(404, "Dokumentum nem található")
 
-    # Qdrant vektorok törlése
+    tenant_id = current_user.get("tenant_id")
+
+    # Qdrant vektorok törlése (tenant-scoped)
     collection = doc.get("qdrant_collection") or qdrant_service.tag_to_collection(doc.get("tag", "general"))
-    deleted_vectors = await qdrant_service.delete_by_doc_id(doc_id, collection)
+    deleted_vectors = await qdrant_service.delete_by_doc_id(doc_id, collection, tenant_id=tenant_id)
 
     # DB soft delete
     await q.soft_delete_document(doc_id)
@@ -239,7 +344,7 @@ async def delete_document(
 
     log.info(f"Document deleted: {doc_id} filename={doc['filename']} vectors={deleted_vectors}")
     await alog.insert_audit_log(
-        tenant_id=current_user.get("tenant_id"), user_id=current_user.get("user_id"),
+        tenant_id=tenant_id, user_id=current_user.get("user_id"),
         user_email=current_user.get("email"), action="delete", entity_type="document",
         entity_id=doc_id, details={"filename": doc["filename"], "vectors_removed": deleted_vectors},
     )

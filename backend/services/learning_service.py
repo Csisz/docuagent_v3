@@ -60,7 +60,8 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 # ── Fő függvény ───────────────────────────────────────────────
 
-async def get_feedback_context(subject: str, body: str) -> tuple[str, Optional[str], float]:
+async def get_feedback_context(subject: str, body: str,
+                               tenant_id: Optional[str] = None) -> tuple[str, Optional[str], float]:
     """
     Visszaad: (prompt_kontextus, forced_status_vagy_None, hasonlóság_score)
 
@@ -69,7 +70,7 @@ async def get_feedback_context(subject: str, body: str) -> tuple[str, Optional[s
     3. Ha elég magas a match → forced override
     4. Prompt kontextust épít a GPT számára
     """
-    rows = await q.get_recent_feedback(limit=30)
+    rows = await q.get_recent_feedback(limit=30, tenant_id=tenant_id)
     if not rows:
         return "", None, 0.0
 
@@ -112,7 +113,7 @@ async def get_feedback_context(subject: str, body: str) -> tuple[str, Optional[s
         log.info(f"Learning override (score={best_score:.3f}): → {forced}")
 
     # ── Prompt kontextus építése ───────────────────────────────
-    recent = await q.get_feedback_for_prompt(limit=10)
+    recent = await q.get_feedback_for_prompt(limit=10, tenant_id=tenant_id)
     lines  = []
 
     if recent:

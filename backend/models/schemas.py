@@ -42,10 +42,11 @@ class AiDecision(BaseModel):
 # ── Request modellek ──────────────────────────────────────────
 
 class ClassifyRequest(BaseModel):
-    email_id: Optional[str] = None
-    subject:  str
-    body:     str
-    sender:   Optional[str] = ""
+    email_id:  Optional[str] = None
+    subject:   str
+    body:      str
+    sender:    Optional[str] = ""
+    tenant_id: Optional[str] = None   # internal: set by ingest pipeline, not exposed to external callers
 
     @field_validator("subject", "body")
     @classmethod

@@ -83,12 +83,14 @@ async def send_message(
         title = req.question[:60] + ("..." if len(req.question) > 60 else "")
         await q.update_session_title(session_id, title)
 
-    # RAG keresés
+    # RAG keresés (tenant-scoped)
     try:
         if req.collection:
-            results = await qdrant_service.search(req.question, req.collection, limit=4)
+            results = await qdrant_service.search(req.question, req.collection,
+                                                   limit=4, tenant_id=tenant_id)
         else:
-            results = await qdrant_service.search_multi(req.question, limit_per=3)
+            results = await qdrant_service.search_multi(req.question, limit_per=3,
+                                                         tenant_id=tenant_id)
     except Exception as e:
         log.warning(f"Chat RAG error: {e}")
         results = []
@@ -226,7 +228,8 @@ async def widget_chat_message(req: WidgetChatRequest):
         await q.update_session_title(session_id, title)
 
     try:
-        results = await qdrant_service.search_multi(req.question, limit_per=3)
+        results = await qdrant_service.search_multi(req.question, limit_per=3,
+                                                     tenant_id=tenant_id)
     except Exception as e:
         log.warning(f"Widget RAG error: {e}")
         results = []

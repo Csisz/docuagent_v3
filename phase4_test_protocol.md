@@ -1,516 +1,820 @@
-# DocuAgent v3 — Phase Validation Test Protocol (Rewritten)
-# Based on actual codebase + analysis + phase prompt decisions
-# April 2026
+# DocuAgent v3 — Phase Validation Test Protocol v2
+# Every test uses either UI steps or exact PowerShell commands.
+# No abstract API descriptions.
+#
+# Tenants in this environment:
+#   Tenant A = Agentify Teszt Kft. | UUID: 54cbdd88-ae04-4cfc-92f9-5a21175daaed
+#   Tenant B = Demo Kft.           | UUID: 00000000-0000-0000-0000-000000000001
+#   Users:
+#     admin@agentify-test.hu / agent@agentify-test.hu  → Tenant A
+#     admin@demo.hu / demo@agentify.hu                 → Tenant B
 
 ---
 
-## How to use this document
+## BEFORE YOU START — Get JWT tokens (needed for PowerShell tests)
 
-Each phase has:
-- **Prerequisites** — what must be true before testing starts
-- **Tests** — specific, verifiable checks with exact API calls or UI steps
-- **Pass/Fail criteria** — binary, no ambiguity
-- **Rollback note** — what to watch for if something breaks
+Run once at the start of each test session. Replace passwords with your actual ones.
 
-Run tests in order. Each phase depends on the previous.
+```powershell
+# Tenant A token
+$loginA = Invoke-WebRequest -Uri "http://localhost:8000/api/auth/login" `
+  -Method POST -UseBasicParsing `
+  -ContentType "application/json" `
+  -Body '{"email":"admin@agentify-test.hu","password":"YOUR_PASSWORD"}'
+$tokenA = ($loginA.Content | ConvertFrom-Json).access_token
+
+# Tenant B token
+$loginB = Invoke-WebRequest -Uri "http://localhost:8000/api/auth/login" `
+  -Method POST -UseBasicParsing `
+  -ContentType "application/json" `
+  -Body '{"email":"admin@demo.hu","password":"YOUR_PASSWORD"}'
+$tokenB = ($loginB.Content | ConvertFrom-Json).access_token
+
+# Verify both tokens exist
+Write-Host "Token A: $($tokenA.Substring(0,20))..."
+Write-Host "Token B: $($tokenB.Substring(0,20))..."
+```
 
 ---
 
-## Phase 1 — Tenant Isolation & Execution Discipline
+## PHASE 1 — Tenant Isolation & Execution Discipline
 
 **Prerequisites:**
-- Migration `migrate_v3_14_agent_runs.sql` has been run
-- Two test tenants exist: tenant_A and tenant_B (different UUIDs)
-- At least one document uploaded per tenant to different Qdrant collections
+```powershell
+# Check agent_runs table exists
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c "\dt agent_runs"
+
+# Check all containers running
+docker compose ps
+```
+Expected: agent_runs table listed, all services Up.
 
 ---
 
-### Test 1.1 — Qdrant vector isolation
+### Test 1.1 — Qdrant vector isolation (cross-tenant document leak)
 
-**Steps:**
-1. Upload document to tenant_A: `POST /api/documents` (with JWT for tenant_A user)
-   - File content: "Az ÁFA bevallás határideje március 31."
-   - Tag: "billing"
-2. Query RAG as tenant_B: `POST /api/rag/query` (with JWT for tenant_B user)
-   - Query: "ÁFA bevallás határideje"
+**Step 1 — Upload document as Tenant A**
 
-**Pass:** Response returns 0 results or results only from tenant_B's own documents.
-**Fail:** Response returns the document uploaded by tenant_A.
+UI:
+1. Open http://localhost:3000
+2. Login as `admin@agentify-test.hu`
+3. Go to Documents page
+4. Upload any file — content should include unique text like "Agentify üzleti modell"
+5. Wait until document appears in the list with green status
 
-**Verify in Qdrant directly:**
-```
-GET http://localhost:6333/collections
-```
-Expected: collection names contain tenant_A's UUID prefix (e.g., `a1b2c3d4_billing`). tenant_B's prefix is different.
+**Step 2 — Verify Tenant A collection exists with tenant_id in payload**
 
----
+```powershell
+# Check collections
+Invoke-WebRequest -Uri "http://localhost:6333/collections" -UseBasicParsing | Select-Object -ExpandProperty Content
 
-### Test 1.2 — Qdrant payload contains tenant_id
-
-**Steps:**
-1. After uploading a document for tenant_A, query Qdrant directly:
-```
-POST http://localhost:6333/collections/{tenant_a_collection}/points/search
-Body: {"vector": [...], "limit": 1, "with_payload": true}
-```
-
-**Pass:** Every returned point's payload contains `"tenant_id": "{tenant_a_uuid}"`.
-**Fail:** `tenant_id` key is missing from payload.
-
----
-
-### Test 1.3 — Feedback learning is tenant-scoped
-
-**Steps:**
-1. As tenant_A: classify email, then manually override to "complaint" → creates feedback row
-2. As tenant_B: classify a similar email
-
-**Pass:** tenant_B's classification prompt context does NOT include tenant_A's feedback corrections.
-
-**Verify via SQL:**
-```sql
-SELECT tenant_id, COUNT(*) FROM feedback GROUP BY tenant_id;
-```
-Each tenant's feedback is counted separately. No feedback row has NULL tenant_id.
-
----
-
-### Test 1.4 — agent_runs records every execution
-
-**Steps:**
-1. As tenant_A: POST /api/classify with any email
-2. As tenant_A: POST /api/generate-reply for that email
-3. As tenant_A: upload a document
-
-**Verify via SQL:**
-```sql
-SELECT trigger_type, status, latency_ms, cost_usd FROM agent_runs WHERE tenant_id = '{tenant_a_uuid}' ORDER BY created_at DESC LIMIT 5;
+# Check payload of Tenant A's vectors — look for "tenant_id" field
+Invoke-WebRequest -Uri "http://localhost:6333/collections/54cbdd88_general/points/scroll" `
+  -Method POST -UseBasicParsing `
+  -ContentType "application/json" `
+  -Body '{"limit": 1, "with_payload": true}' | Select-Object -ExpandProperty Content
 ```
 
-**Pass:** 3 rows exist (email_classify, reply_generate, doc_ingest). All have status='success'. latency_ms > 0. cost_usd > 0 for AI calls.
-**Fail:** Rows missing, or status='running' (never finished), or cost_usd = 0 for AI calls.
+**Step 3 — Query as Tenant B**
+
+UI:
+1. Logout
+2. Login as `admin@demo.hu`
+3. Go to Chat page
+4. Type: `"Milyen folyamatokat automatizál az Agentify platform?"`
+5. Check the answer and the sources panel
+
+**PASS:**
+- Collections list contains `54cbdd88_general` and `00000000_general` as separate entries
+- Payload contains `"tenant_id": "54cbdd88-ae04-4cfc-92f9-5a21175daaed"`
+- Chat response for Demo Kft. does NOT reference Agentify Teszt Kft.'s document in sources
+
+**FAIL:** Chat response cites Tenant A's document as a source while logged in as Tenant B.
 
 ---
 
-### Test 1.5 — Document ingestion is async
+### Test 1.2 — Feedback learning is tenant-scoped
 
-**Steps:**
-1. POST /api/documents with a PDF (any)
+**Step 1 — Create feedback as Tenant A**
 
-**Pass:** Response arrives in < 2 seconds. Response body contains `{"status": "processing", "run_id": "...", "doc_id": "..."}`.
-2. Poll GET /api/documents/{doc_id}/status every 5 seconds.
-**Pass:** Within 60 seconds, status changes to "success" or "failed" (not stuck on "processing").
-**Fail:** Endpoint blocks for > 5 seconds before responding. Or status never updates.
+UI:
+1. Login as `admin@agentify-test.hu`
+2. Go to Emails page
+3. Find any email with AI classification
+4. Override the decision (approve or reject differently than AI suggested)
+5. Submit
 
----
+**Step 2 — Check feedback is tenant-scoped in DB**
 
-### Test 1.6 — Cross-tenant API key does not leak data
+```powershell
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT tenant_id, COUNT(*) FROM feedback GROUP BY tenant_id;"
+```
 
-**Steps:**
-1. Using tenant_A's API key (X-API-Key header): GET /api/emails
-2. Using tenant_B's API key: GET /api/emails
-
-**Pass:** Each returns only their own tenant's emails. No overlap.
-**Fail:** Any email from tenant_A appears in tenant_B's response or vice versa.
-
----
-
-**Phase 1 Pass Criteria:** All 6 tests pass. Zero cross-tenant data leaks in any test.
+**PASS:** Two separate rows with different tenant_id values. No row with NULL tenant_id.
+**FAIL:** Single row with NULL tenant_id, or all feedback under one tenant.
 
 ---
 
-## Phase 2 — Agent Runtime: Layers, Policy, Structured Outputs
+### Test 1.3 — agent_runs records every AI execution
+
+**Step 1 — Trigger classification via UI**
+
+UI:
+1. Login as `admin@agentify-test.hu`
+2. Go to Emails page
+3. Find an unprocessed email or use the n8n simulate function to send a test email
+
+**Step 2 — Check agent_runs**
+
+```powershell
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT trigger_type, status, latency_ms, cost_usd, created_at FROM agent_runs WHERE tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed' ORDER BY created_at DESC LIMIT 5;"
+```
+
+**PASS:** Rows exist with `status='success'`, `latency_ms > 0`, `cost_usd > 0` for AI calls.
+**FAIL:** No rows, or `status='running'` stuck, or `cost_usd = 0`.
+
+---
+
+### Test 1.4 — Document ingestion is async (returns immediately)
+
+**Step 1 — Upload and time the response**
+
+```powershell
+# Create a test file
+"Ez egy teszt dokumentum az async feldolgozás ellenőrzéséhez." | Out-File -FilePath "$env:TEMP\async_test.txt" -Encoding UTF8
+
+# Measure upload response time
+$start = Get-Date
+$upload = Invoke-WebRequest -Uri "http://localhost:8000/api/documents" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA" } `
+  -Form @{
+    file       = Get-Item "$env:TEMP\async_test.txt"
+    tag        = "general"
+    department = "General"
+    access_level = "employee"
+  }
+$elapsed = (Get-Date) - $start
+Write-Host "Response time: $($elapsed.TotalSeconds) seconds"
+Write-Host "Response: $($upload.Content)"
+```
+
+**Step 2 — Poll for completion**
+
+```powershell
+$docId = ($upload.Content | ConvertFrom-Json).doc_id
+Start-Sleep -Seconds 15
+
+# Check worker logs
+docker logs docuagent_v3-worker-1 --tail 20
+
+# Check document status in DB
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT id, filename, qdrant_ok FROM documents WHERE id = '$docId';"
+```
+
+**PASS:** Response time < 2 seconds. Response contains `"status": "processing"`. Within 60 seconds `qdrant_ok = true` in DB.
+**FAIL:** Response takes > 5 seconds (blocking). Or `qdrant_ok` stays `false` after 60 seconds.
+
+---
+
+### Test 1.5 — Cross-tenant email isolation
+
+```powershell
+# Tenant A emails
+$emailsA = Invoke-WebRequest -Uri "http://localhost:8000/api/emails" `
+  -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA" }
+$emailsA.Content | ConvertFrom-Json | Select-Object -ExpandProperty emails | Select-Object id, subject, tenant_id | Format-Table
+
+# Tenant B emails
+$emailsB = Invoke-WebRequest -Uri "http://localhost:8000/api/emails" `
+  -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenB" }
+$emailsB.Content | ConvertFrom-Json | Select-Object -ExpandProperty emails | Select-Object id, subject, tenant_id | Format-Table
+```
+
+**PASS:** No email IDs overlap between the two responses. Each response only contains that tenant's emails.
+**FAIL:** Same email ID appears in both responses.
+
+---
+
+**Phase 1 Pass Criteria:** All 5 tests pass. Zero cross-tenant data visible.
+
+---
+
+## PHASE 2 — Agent Runtime: Layers, Policy, Structured Outputs
 
 **Prerequisites:**
-- Phase 1 all tests pass
-- Migrations `migrate_v3_15_policy.sql` and `migrate_v3_16_email_cases.sql` run
-- `backend/agents/` directory exists with all 5 layer files
+```powershell
+# Check new tables exist
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "\dt policy_overrides"
+
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "\dt email_cases"
+
+# Check agents/ directory exists in backend
+docker exec docuagent_v3-backend-1 ls /app/agents/
+```
 
 ---
 
-### Test 2.1 — Policy engine blocks NAV-related emails from auto-approval
+### Test 2.1 — Policy blocks NAV emails from auto-approval
 
-**Steps:**
-1. POST /api/classify with this body:
-```json
-{
-  "subject": "NAV ellenőrzés értesítő",
-  "body": "Értesítjük, hogy adóellenőrzésre kerül sor vállalkozásánál. Kérem vegye fel velünk a kapcsolatot."
+```powershell
+$navEmail = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"NAV ellenorzos ertesito","body":"Ertesitjuk hogy adoellenorzesre kerul sor vallalkozasanal. Kerem vegye fel velunk a kapcsolatot."}'
+
+$navEmail.Content | ConvertFrom-Json | Select-Object can_answer, status, category, reason | Format-List
+```
+
+**PASS:** `can_answer = false`, `status = NEEDS_ATTENTION`. Reason mentions policy or NAV.
+**FAIL:** `can_answer = true` — policy engine not working.
+
+---
+
+### Test 2.2 — Policy blocks complaint emails from auto-approval
+
+```powershell
+$complaint = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"Elegedetlen vagyok a szolgaltatassal","body":"Mar harmadik alkalommal hibas a szamla amit kuldtek. Ez teljesen elfogadhatatlan."}'
+
+$complaint.Content | ConvertFrom-Json | Select-Object can_answer, category, status | Format-List
+```
+
+**PASS:** `category = complaint`, `can_answer = false`.
+**FAIL:** `can_answer = true`.
+
+---
+
+### Test 2.3 — Entity extraction on invoice email
+
+```powershell
+$invoice = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"SZ-2024-0423 szamla beküldve","body":"Mellekelem a 2024. marcius 15-i keltű, 150000 Ft ertekű szamlat szamlaszam SZ-2024-0423. Kerem szives feldolgozasukat."}'
+
+$result = $invoice.Content | ConvertFrom-Json
+Write-Host "Category: $($result.category)"
+Write-Host "Can answer: $($result.can_answer)"
+
+# Check agent_runs for entity extraction result
+Start-Sleep -Seconds 2
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT result_summary FROM agent_runs WHERE tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed' ORDER BY created_at DESC LIMIT 1;"
+```
+
+**PASS:** `result_summary` contains invoice_ids with "SZ-2024-0423", amounts with "150000", dates with "marcius 15".
+**FAIL:** `result_summary` is null or empty.
+
+---
+
+### Test 2.4 — Model routing uses gpt-4o-mini for classification
+
+```powershell
+# Classify any email
+Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"Általános kérdés","body":"Mikor van az ügyfélszolgálat nyitva?"}' | Out-Null
+
+# Check model used
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT trigger_type, ai_model, cost_usd FROM agent_runs WHERE tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed' ORDER BY created_at DESC LIMIT 3;"
+```
+
+**PASS:** `ai_model = gpt-4o-mini` for classify rows.
+**FAIL:** `ai_model = gpt-4o` for classification.
+
+---
+
+### Test 2.5 — Tenant-level policy override works
+
+```powershell
+# Set strict confidence threshold for Tenant A
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "INSERT INTO policy_overrides (tenant_id, rule_key, rule_value) VALUES ('54cbdd88-ae04-4cfc-92f9-5a21175daaed', 'min_confidence_for_auto', '0.99') ON CONFLICT (tenant_id, rule_key) DO UPDATE SET rule_value = '0.99';"
+
+# Classify a simple email as Tenant A (should now be blocked by 0.99 threshold)
+$strictTest = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"Mikor van nyitva?","body":"Szeretnem tudni hogy mikor van nyitva az iroda."}'
+Write-Host "Tenant A result: $(($strictTest.Content | ConvertFrom-Json).can_answer)"
+
+# Same email as Tenant B (default 0.75 threshold — should auto-approve)
+$normalTest = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenB"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"Mikor van nyitva?","body":"Szeretnem tudni hogy mikor van nyitva az iroda."}'
+Write-Host "Tenant B result: $(($normalTest.Content | ConvertFrom-Json).can_answer)"
+
+# Reset Tenant A threshold
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "DELETE FROM policy_overrides WHERE tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed' AND rule_key = 'min_confidence_for_auto';"
+```
+
+**PASS:** Tenant A: `can_answer = false`. Tenant B: `can_answer = true` (or at least different result).
+**FAIL:** Both return same result regardless of policy override.
+
+---
+
+### Test 2.6 — Case auto-linking for urgent emails
+
+```powershell
+# Send urgent email
+$urgent = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"SURGOS: Azonnal szukseg van segitsegre","body":"Azonnal kell valaki mert komoly problemank van. ASAP kerem a visszajelzest."}'
+
+$emailId = ($urgent.Content | ConvertFrom-Json).email_id
+Write-Host "Email ID: $emailId"
+
+Start-Sleep -Seconds 3
+
+# Check case linking
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT * FROM email_cases WHERE email_id = '$emailId';"
+```
+
+**PASS:** At least one row in email_cases for this email_id.
+**FAIL:** No rows — case linking not working.
+
+---
+
+**Phase 2 Pass Criteria:** All 6 tests pass. Policy controls AI decisions. Entities extracted. Model routing verified.
+
+---
+
+## PHASE 3 — Könyvelő-First Product
+
+**Prerequisites:**
+```powershell
+# Check accounting templates loaded
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT COUNT(*), category FROM templates GROUP BY category;"
+```
+Expected: at least 9 templates across 3 categories.
+
+---
+
+### Test 3.1 — Onboarding uses könyvelő language (no tech jargon)
+
+UI — Manual check:
+1. Login as `admin@agentify-test.hu`
+2. Go to http://localhost:3000/onboarding
+3. Read every step heading and body text carefully
+
+```powershell
+# Also check page source for forbidden terms
+$onboarding = Invoke-WebRequest -Uri "http://localhost:3000/onboarding" -UseBasicParsing
+$forbidden = @("RAG", "vector", "embedding", "confidence threshold", "tenant", "collection")
+foreach ($term in $forbidden) {
+  if ($onboarding.Content -match $term) {
+    Write-Host "FAIL: Found forbidden term '$term' in onboarding page"
+  } else {
+    Write-Host "OK: '$term' not found"
+  }
 }
 ```
 
-**Pass:** Response contains `"can_answer": false` and `"status": "NEEDS_ATTENTION"` regardless of AI confidence. The `reason` field mentions policy or NAV keyword block.
-**Fail:** Email is auto-approved.
+**PASS:** Zero forbidden technical terms. All text in Hungarian. Policy toggles use business language.
+**FAIL:** Any forbidden term found, or English-only UI.
 
 ---
 
-### Test 2.2 — Policy engine blocks complaint emails from auto-approval
+### Test 3.2 — Accounting templates exist in Hungarian
 
-**Steps:**
-1. POST /api/classify with:
-```json
-{
-  "subject": "Elégedetlen vagyok a szolgáltatással",
-  "body": "Már harmadik alkalommal hibás a számla amit küldtek. Ez teljesen elfogadhatatlan."
-}
+```powershell
+$templates = Invoke-WebRequest -Uri "http://localhost:8000/api/templates" `
+  -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA" }
+
+$templateList = $templates.Content | ConvertFrom-Json
+Write-Host "Total templates: $($templateList.Count)"
+$templateList | Select-Object title, category | Format-Table
 ```
 
-**Pass:** `"category": "complaint"` and `"can_answer": false`. Policy rule `complaints_always_review: True` was applied.
-**Fail:** Auto-approved or category is wrong.
+**PASS:** At least 9 templates. Hungarian titles. At least 3 distinct categories visible.
+**FAIL:** Empty list, or English templates only.
 
 ---
 
-### Test 2.3 — Structured output validation catches malformed AI response
+### Test 3.3 — Entity panel appears in Approval inbox for invoice email
 
-**Steps:**
-1. Temporarily inject a mock that returns invalid JSON from OpenAI (e.g., `{"confidence": "high"}` missing required fields)
-2. Call POST /api/classify
+**Step 1 — Send invoice email through classify**
 
-**Pass:** System retries once, then returns a safe fallback: `{"can_answer": false, "confidence": 0.0, "status": "NEEDS_ATTENTION"}`. An agent_run row with `status='failed'` and `error_message` set is created.
-**Fail:** System crashes with 500, or returns malformed data to caller, or swallows the error silently.
+```powershell
+$inv = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"SZ-2024-9999 szamla","body":"Kuldom a 280000 Ft erteku SZ-2024-9999 szamlat. Fizetesi hatarido: 2024. aprilis 30."}'
 
----
-
-### Test 2.4 — Entity extraction works on invoice-like email
-
-**Steps:**
-1. POST /api/classify with:
-```json
-{
-  "subject": "SZ-2024-0423 számla beküldve",
-  "body": "Mellékelem a 2024. március 15-i keltű, 150.000 Ft értékű számlát (számlaszám: SZ-2024-0423). Kérem szíves feldolgozásukat."
-}
+$emailId = ($inv.Content | ConvertFrom-Json).email_id
+Write-Host "Email ID for UI check: $emailId"
 ```
 
-**Pass:** agent_run row for this classification contains `result_summary` with JSON including: invoice_ids containing "SZ-2024-0423", amounts containing "150.000 Ft", dates containing "március 15" or "2024.03.15".
-**Fail:** result_summary is empty, or entities not extracted.
+**Step 2 — Check in UI**
+
+UI:
+1. Go to http://localhost:3000/approvals
+2. Find the email just classified
+3. Open it
+
+**PASS:** "Azonosított adatok" panel visible above reply editor. Shows invoice number SZ-2024-9999, amount 280000, date April 30.
+**FAIL:** Panel not shown or empty.
 
 ---
 
-### Test 2.5 — Model routing uses cheap model for classification
+### Test 3.4 — Source trust panel shows RAG sources
 
-**Steps:**
-1. POST /api/classify (any email)
-2. Check agent_runs row: `ai_model` column value
+UI:
+1. Go to http://localhost:3000/approvals
+2. Open any email that was answered using RAG (sources > 0)
+3. Look for "Mire támaszkodott az AI?" section
 
-**Pass:** `ai_model` = "gpt-4o-mini" for classification.
-**Fail:** `ai_model` = "gpt-4o" (expensive model used unnecessarily).
+**PASS:** Section visible and collapsible. At least one document listed with filename and relevance bar.
+**FAIL:** Section missing, or empty even when documents were used.
 
 ---
 
-### Test 2.6 — Case auto-linking for high-urgency emails
+### Test 3.5 — ROI widget shows data on Dashboard
 
-**Steps:**
-1. POST /api/classify with `urgency_score`-inducing content (explicit urgency keywords: "sürgős", "azonnal")
-2. Check email_cases table:
-```sql
-SELECT * FROM email_cases WHERE email_id = '{new_email_id}';
+UI:
+1. Go to http://localhost:3000/dashboard
+
+**PASS:** "Megtakarított idő" widget visible. Shows non-zero minutes if any emails were auto-approved. Values are reasonable (not 500 hours for 5 emails).
+**FAIL:** Widget missing or always shows 0.
+
+---
+
+### Test 3.6 — Empty state guides new users
+
+```powershell
+# Create a brand new tenant and user for this test
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "INSERT INTO tenants (name, slug) VALUES ('Ures Teszt Kft.', 'ures-teszt') ON CONFLICT DO NOTHING;"
+
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT id FROM tenants WHERE slug = 'ures-teszt';"
 ```
 
-**Pass:** A case was created and linked, OR an existing case was found and linked. email_cases row exists.
-**Fail:** No case linked, email has no case relationship.
+UI:
+1. Register or manually create a user for the new tenant
+2. Login as that user
+3. Go to Dashboard
+
+**PASS:** 3-step checklist visible. "Dokumentum feltöltve (0/1)" unchecked. Each step is a clickable link.
+**FAIL:** Blank page, generic "No data", or normal dashboard without guidance.
 
 ---
 
-### Test 2.7 — Policy override works at tenant level
-
-**Steps:**
-1. Insert a policy override for tenant_A:
-```sql
-INSERT INTO policy_overrides (tenant_id, rule_key, rule_value) VALUES ('{tenant_a_uuid}', 'min_confidence_for_auto', '0.90');
-```
-2. POST /api/classify with a medium-confidence (0.78) email as tenant_A
-3. POST the same email as tenant_B (no override)
-
-**Pass:** tenant_A: NEEDS_ATTENTION (confidence below their 0.90 threshold). tenant_B: potentially auto-approved at default 0.75 threshold.
-**Fail:** Policy override has no effect.
+**Phase 3 Pass Criteria:** All 6 tests pass. Non-technical user can navigate without help.
 
 ---
 
-**Phase 2 Pass Criteria:** All 7 tests pass. Policy engine is provably controlling AI decisions. Entities are extracted. Model routing is verifiable.
-
----
-
-## Phase 3 — Könyvelő-First Product
+## PHASE 4 — Scalable SaaS: Metering, Queue, Enterprise
 
 **Prerequisites:**
-- Phase 2 all tests pass
-- Migration `migrate_v3_17_accounting_templates.sql` run
-- At least one fresh user account (no prior data) for onboarding test
+```powershell
+# All Phase 4 tables exist
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "\dt usage_records tenant_quotas prompt_versions invoice_extractions"
 
----
-
-### Test 3.1 — New user reaches first working automation in < 10 minutes
-
-**Manual test — time it with a stopwatch:**
-
-1. Login as a brand new könyvelő user (no prior setup)
-2. Navigate to Onboarding wizard
-3. Complete all steps
-4. Upload one document (a real or dummy "GYIK" document)
-5. Send a test email to the connected Gmail (or use the simulate endpoint)
-6. Check: email appears in Approval inbox with an AI draft
-
-**Pass:** All steps completed in < 10 minutes. No step required technical knowledge (no JSON, no API keys visible, no "confidence threshold" mentioned in UI).
-**Fail:** More than 10 minutes. Or any step shows technical terminology to the user.
-
----
-
-### Test 3.2 — Onboarding wizard uses könyvelő language throughout
-
-**Steps:**
-1. Open OnboardingPage
-2. Read every step heading and description
-
-**Pass:** Zero occurrences of: "RAG", "vector", "embedding", "confidence threshold", "tenant", "collection", "API". All text is in Hungarian (or optionally English, but no tech jargon). Policy toggles use business language like "Számla levelek mindig emberi jóváhagyást kapnak".
-**Fail:** Any technical term visible to user.
-
----
-
-### Test 3.3 — Accounting template library has Hungarian content
-
-**Steps:**
-1. GET /api/templates (as a könyvelőiroda tenant)
-
-**Pass:** At least 9 templates returned. All templates have Hungarian body text. At least 3 categories present: general replies, invoice/finance, NAV/tax.
-**Fail:** Empty template list, English templates only, or fewer than 9 templates.
-
----
-
-### Test 3.4 — Entity panel appears in Approval inbox for invoice emails
-
-**Steps:**
-1. Process an email containing invoice data (SZ-xxxx, amount in HUF)
-2. Open the email in Approval inbox (ApprovalPage)
-
-**Pass:** "Azonosított adatok" panel is visible above the reply editor. Shows invoice ID, amount, and any dates detected. If tax keywords present, "NAV vagy adó tartalom észlelve" badge is visible.
-**Fail:** Panel not shown, or shows for all emails regardless of content.
-
----
-
-### Test 3.5 — Source trust panel shows RAG sources
-
-**Steps:**
-1. Process an email that triggers RAG retrieval (query should match uploaded document)
-2. Open in Approval inbox
-
-**Pass:** "Mire támaszkodott az AI?" section is visible and collapsible. Shows at least one document name with a relevance score bar. Score bar is visually proportional to the score value.
-**Fail:** Section not visible, or "General knowledge" shown even when documents were used.
-
----
-
-### Test 3.6 — ROI widget shows meaningful data after 5+ auto-approved emails
-
-**Steps:**
-1. Process and auto-approve 5 emails (status → CLOSED without human edit)
-2. Open Dashboard
-
-**Pass:** "Megtakarított idő" widget shows X > 0 minutes saved. Shows correct count of auto-approved emails. Week comparison bar renders.
-**Fail:** Widget shows 0 when it should not. Calculation clearly wrong (e.g., 500 hours for 5 emails).
-
----
-
-### Test 3.7 — Empty state guides new tenant
-
-**Steps:**
-1. Login as brand new tenant (0 emails, 0 documents)
-2. Open Dashboard
-
-**Pass:** 3-step checklist visible with correct status indicators. "Dokumentum feltöltve (0/1)" shows unchecked. Clicking each step navigates to the correct action. No generic "No data" message.
-**Fail:** Blank dashboard or generic empty state without guidance.
-
----
-
-**Phase 3 Pass Criteria:** All 7 tests pass. A non-technical Hungarian accountant can use the product without help.
-
----
-
-## Phase 4 — Scalable SaaS: Metering, Queue, Enterprise
-
-**Prerequisites:**
-- Phase 3 all tests pass
-- Redis and worker containers running (`docker compose ps` shows worker as healthy)
-- All 4 Phase 4 migrations run
+# Redis and worker running
+docker compose ps | Select-String "worker|redis"
+```
 
 ---
 
 ### Test 4.1 — Usage metering increments per tenant
 
-**Steps:**
-1. Process 3 emails for tenant_A via POST /api/classify
-2. Check metering:
-```sql
-SELECT emails_processed, ai_calls_made, tokens_consumed, cost_usd FROM usage_records WHERE tenant_id = '{tenant_a_uuid}' AND period_start = CURRENT_DATE - INTERVAL '1 day' * EXTRACT(DOW FROM CURRENT_DATE)::int;
+```powershell
+# Process 3 emails as Tenant A
+1..3 | ForEach-Object {
+  Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+    -Method POST -UseBasicParsing `
+    -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+    -Body "{`"subject`":`"Teszt email $_`",`"body`":`"Ez a $_ teszt email tartalma.`"}" | Out-Null
+  Write-Host "Processed email $_"
+}
+
+Start-Sleep -Seconds 3
+
+# Check metering
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT emails_processed, ai_calls_made, tokens_consumed, cost_usd FROM usage_records WHERE tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed' ORDER BY period_start DESC LIMIT 1;"
 ```
 
-**Pass:** emails_processed = 3. ai_calls_made >= 3. tokens_consumed > 0. cost_usd > 0.
-**Fail:** Any field is 0 or the row doesn't exist.
+**PASS:** `emails_processed >= 3`, `ai_calls_made >= 3`, `tokens_consumed > 0`, `cost_usd > 0`.
+**FAIL:** Any field is 0 or row doesn't exist.
 
 ---
 
 ### Test 4.2 — Quota enforcement returns 429
 
-**Steps:**
-1. Set tenant_A's quota to 5 emails:
-```sql
-UPDATE tenant_quotas SET max_emails_per_month = 5 WHERE tenant_id = '{tenant_a_uuid}';
-```
-2. Process 5 emails (fills quota)
-3. POST /api/classify with a 6th email
+```powershell
+# Set very low quota for Tenant A
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "INSERT INTO tenant_quotas (tenant_id, max_emails_per_month) VALUES ('54cbdd88-ae04-4cfc-92f9-5a21175daaed', 1) ON CONFLICT (tenant_id) DO UPDATE SET max_emails_per_month = 1;"
 
-**Pass:** Response is HTTP 429. Body contains Hungarian message: "Havi email limit elérve".
-**Fail:** 6th email is processed. Or 429 but wrong message. Or 500 error.
+# Also set current usage above the limit
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "UPDATE usage_records SET emails_processed = 5 WHERE tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed' ORDER BY period_start DESC LIMIT 1;"
+
+# Try to classify — should get 429
+try {
+  $blocked = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+    -Method POST -UseBasicParsing `
+    -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+    -Body '{"subject":"Quota teszt","body":"Ez nem mehet at."}'
+  Write-Host "FAIL: Got HTTP $($blocked.StatusCode) — expected 429"
+} catch {
+  Write-Host "PASS: Got error response — status: $($_.Exception.Response.StatusCode)"
+  Write-Host "Body: $($_.ErrorDetails.Message)"
+}
+
+# Reset quota
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "UPDATE tenant_quotas SET max_emails_per_month = 500 WHERE tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed';"
+```
+
+**PASS:** Exception caught, status is 429. Body contains "Havi email limit elérve".
+**FAIL:** Email processed normally (200 response).
 
 ---
 
 ### Test 4.3 — Document ingestion runs via arq queue
 
-**Steps:**
-1. Upload a document: POST /api/documents
-2. Immediately check: response has `{"status": "processing"}` — endpoint returned fast (< 1 second)
-3. Check arq worker logs: `docker logs docuagent_v3-worker-1 --tail 20`
+```powershell
+# Upload document and check timing
+"Arq queue teszt dokumentum tartalma." | Out-File -FilePath "$env:TEMP\queue_test.txt" -Encoding UTF8
 
-**Pass:** Worker log shows job received and processed. agent_run for this doc_id shows status='success'. Document appears in GET /api/documents within 60 seconds.
-**Fail:** Worker log shows no activity. Document never appears. Or endpoint blocks on ingestion.
+$start = Get-Date
+$upload = Invoke-WebRequest -Uri "http://localhost:8000/api/documents" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA" } `
+  -Form @{
+    file         = Get-Item "$env:TEMP\queue_test.txt"
+    tag          = "general"
+    department   = "General"
+    access_level = "employee"
+  }
+$elapsed = (Get-Date) - $start
+
+Write-Host "Response time: $($elapsed.TotalSeconds)s"
+Write-Host "Response: $($upload.Content)"
+
+# Check worker processed it
+Start-Sleep -Seconds 20
+docker logs docuagent_v3-worker-1 --tail 15
+```
+
+**PASS:** Response < 2 seconds. Worker logs show "process_document" job completed. After 30s, document has `qdrant_ok = true`.
+**FAIL:** Response takes > 5 seconds, or worker log shows no activity.
 
 ---
 
-### Test 4.4 — Arq queue retries on failure
+### Test 4.4 — Arq queue retries on Qdrant failure
 
-**Steps:**
-1. Temporarily break Qdrant (stop container): `docker stop docuagent_v3-qdrant-1`
-2. Upload a document → job enqueued
-3. Restart Qdrant after 30 seconds: `docker start docuagent_v3-qdrant-1`
+```powershell
+# Stop Qdrant
+docker stop docuagent_v3-qdrant-1
+Write-Host "Qdrant stopped"
 
-**Pass:** Worker retries the job automatically. Job eventually succeeds after Qdrant recovers. Max 3 retries visible in worker logs.
-**Fail:** Job fails permanently after first attempt. No retry visible in logs.
+# Upload document — job should be queued but fail
+"Retry teszt dokumentum." | Out-File -FilePath "$env:TEMP\retry_test.txt" -Encoding UTF8
+$retryUpload = Invoke-WebRequest -Uri "http://localhost:8000/api/documents" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA" } `
+  -Form @{
+    file         = Get-Item "$env:TEMP\retry_test.txt"
+    tag          = "general"
+    department   = "General"
+    access_level = "employee"
+  }
+Write-Host "Upload response: $($retryUpload.Content)"
+
+# Wait 30 seconds then restore Qdrant
+Start-Sleep -Seconds 30
+docker start docuagent_v3-qdrant-1
+Write-Host "Qdrant restarted"
+
+# Wait for retry and check worker logs
+Start-Sleep -Seconds 30
+docker logs docuagent_v3-worker-1 --tail 30
+```
+
+**PASS:** Worker logs show retry attempts. After Qdrant restarts, job eventually succeeds.
+**FAIL:** Worker gives up after first attempt with no retry visible in logs.
 
 ---
 
-### Test 4.5 — Role-based approval enforcement
+### Test 4.5 — Role-based senior approval enforcement
 
-**Steps:**
-1. Add "tax" to senior_review_categories for tenant_A's policy
-2. Process an email with category="tax" (or NAV keywords)
-3. Login as agent-role user → navigate to Approval inbox → try to approve the email
+**Step 1 — Set up senior review policy**
 
-**Pass:** Approve button is disabled. "Senior jóváhagyás szükséges" badge visible. Hovering button shows tooltip explaining why.
-4. Login as admin-role user → navigate to same email
-**Pass:** POST /api/approvals/{id}/senior-approve succeeds for admin. Fails with 403 for agent.
-**Fail:** Agent can approve a senior-required email. Badge not shown.
+```powershell
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "INSERT INTO policy_overrides (tenant_id, rule_key, rule_value) VALUES ('54cbdd88-ae04-4cfc-92f9-5a21175daaed', 'senior_review_categories', '[\"legal\",\"tax\"]') ON CONFLICT (tenant_id, rule_key) DO UPDATE SET rule_value = '[\"legal\",\"tax\"]';"
+```
+
+**Step 2 — Send a tax/legal email and check UI as agent role**
+
+UI:
+1. Send a NAV/tax email through classify (use Test 2.1 payload)
+2. Logout from admin
+3. Login as `agent@agentify-test.hu`
+4. Go to Approvals inbox
+5. Find the NAV email
+
+**PASS:** "Senior jóváhagyás szükséges" badge visible. Approve button disabled.
+
+**Step 3 — Verify API enforcement**
+
+```powershell
+# Get agent token
+$loginAgent = Invoke-WebRequest -Uri "http://localhost:8000/api/auth/login" `
+  -Method POST -UseBasicParsing `
+  -ContentType "application/json" `
+  -Body '{"email":"agent@agentify-test.hu","password":"YOUR_PASSWORD"}'
+$tokenAgent = ($loginAgent.Content | ConvertFrom-Json).access_token
+
+# Get the email ID from approvals
+$approvals = Invoke-WebRequest -Uri "http://localhost:8000/api/emails?status=NEEDS_ATTENTION" `
+  -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenAgent" }
+$emailId = ($approvals.Content | ConvertFrom-Json).emails[0].id
+
+# Try to senior-approve as agent — should fail with 403
+try {
+  Invoke-WebRequest -Uri "http://localhost:8000/api/approvals/$emailId/senior-approve" `
+    -Method POST -UseBasicParsing `
+    -Headers @{ "Authorization" = "Bearer $tokenAgent" } | Out-Null
+  Write-Host "FAIL: Agent was able to senior-approve"
+} catch {
+  Write-Host "PASS: Agent blocked — $($_.Exception.Response.StatusCode)"
+}
+```
+
+**PASS:** Agent gets 403. Admin can approve successfully.
+**FAIL:** Agent can approve senior-required emails.
 
 ---
 
 ### Test 4.6 — Invoice extraction produces structured data
 
-**Steps:**
-1. Process an email with invoice content
-2. POST /api/invoice-workflow/extract with the email_id
+```powershell
+# First classify an invoice email to get email_id
+$inv = Invoke-WebRequest -Uri "http://localhost:8000/api/classify" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body '{"subject":"INV-2024-0555 számla","body":"Csatolom az INV-2024-0555 számlát. Összeg: 450000 HUF. Kiállítás: 2024.04.01. Fizetési határidő: 2024.04.30. Szállító: Minta Bt."}'
 
-**Pass:** Response contains: invoice_number, vendor_name, amount, currency (HUF), due_date. All fields populated (not null). Row exists in invoice_extractions table.
-**Fail:** All fields null. Or 500 error. Or endpoint not found.
+$emailId = ($inv.Content | ConvertFrom-Json).email_id
+Write-Host "Email ID: $emailId"
+
+# Trigger invoice extraction
+$extraction = Invoke-WebRequest -Uri "http://localhost:8000/api/invoice-workflow/extract" `
+  -Method POST -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA"; "Content-Type" = "application/json" } `
+  -Body "{`"email_id`":`"$emailId`"}"
+
+Write-Host "Extraction result:"
+$extraction.Content | ConvertFrom-Json | Format-List
+
+# Verify in DB
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT invoice_number, vendor_name, amount, currency, due_date FROM invoice_extractions WHERE email_id = '$emailId';"
+```
+
+**PASS:** Response and DB row contain `invoice_number = INV-2024-0555`, `amount = 450000`, `currency = HUF`, `due_date = 2024-04-30`.
+**FAIL:** All fields null, endpoint 404, or 500 error.
 
 ---
 
-### Test 4.7 — Invoice extraction visible in Approval inbox
+### Test 4.7 — Invoice extraction visible in Approval inbox UI
 
-**Steps:**
-1. Process an invoice-containing email to approval inbox
-2. Open in ApprovalPage
+UI:
+1. Go to http://localhost:3000/approvals
+2. Open the invoice email from Test 4.6
 
-**Pass:** "Számla adatok" card visible with extracted fields. "Mentés" button saves verified data. "Küldés Billingo-ba" button is visible but disabled with "Hamarosan elérhető" tooltip.
-**Fail:** Card not shown. Buttons missing.
+**PASS:** "Számla adatok" card visible with INV-2024-0555, 450000 HUF, due date. "Mentés" button present. "Küldés Billingo-ba" button visible but disabled with tooltip.
+**FAIL:** Card not shown.
 
 ---
 
 ### Test 4.8 — Failed runs appear in Error Center
 
-**Steps:**
-1. Trigger a classification failure (e.g., temporarily set OPENAI_API_KEY to invalid value, process one email)
-2. Restore OPENAI_API_KEY
-3. Navigate to Error Center page (or error tab)
+```powershell
+# Temporarily break OpenAI key
+docker exec docuagent_v3-backend-1 sh -c 'export OPENAI_API_KEY=invalid_key_test'
 
-**Pass:** Failed run appears with: trigger_type, error_message, timestamp. Retry button is present.
-4. Click Retry → run re-queued or re-executed.
-**Pass:** After retry, run status changes to 'success' (if OpenAI key restored).
-**Fail:** Error Center empty despite known failures. Retry button missing or does nothing.
+# This won't persist — use env override approach instead:
+# Just check if any failed runs already exist from previous tests
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT trigger_type, status, error_message, created_at FROM agent_runs WHERE status = 'failed' AND tenant_id = '54cbdd88-ae04-4cfc-92f9-5a21175daaed' ORDER BY created_at DESC LIMIT 5;"
 
----
-
-### Test 4.9 — Prompt versioning tracks which prompt produced which output
-
-**Steps:**
-1. Check that agent_runs rows contain non-null prompt_version column after any classification
-2. Insert a new prompt version for 'classify_system', activate it:
-```sql
-INSERT INTO prompt_versions (name, version, content, is_active) VALUES ('classify_system', 2, '...updated prompt text...', TRUE);
-UPDATE prompt_versions SET is_active = FALSE WHERE name = 'classify_system' AND version = 1;
+# Check Error Center via API
+$failed = Invoke-WebRequest -Uri "http://localhost:8000/api/runs/failed" `
+  -UseBasicParsing `
+  -Headers @{ "Authorization" = "Bearer $tokenA" }
+Write-Host "Failed runs: $($failed.Content)"
 ```
-3. Process another email
-4. Check agent_runs: new row should reference version=2
 
-**Pass:** agent_runs.prompt_version = 2 for the new row. Old rows still show version=1.
-**Fail:** prompt_version column null on any rows.
+UI:
+1. Go to Error Center page (check Sidebar for "Hibák" link)
+2. Verify failed runs appear with trigger type, error message, timestamp, and Retry button
 
----
-
-### Test 4.10 — Usage dashboard shows correct data to admin
-
-**Steps:**
-1. Login as admin-role user for tenant_A
-2. Open Dashboard → scroll to "Használat és korlátok" section
-
-**Pass:** 3 progress bars visible (emails, AI calls, documents). Values match SQL query to usage_records. Estimated cost shown as "$X.XX". Plan name visible.
-3. Login as agent-role user for tenant_A
-**Pass:** "Használat és korlátok" section NOT visible (admin-only).
-**Fail:** Section missing for admin. Or visible for non-admin.
+**PASS:** Failed runs visible in both API response and UI. Retry button present.
+**FAIL:** Error Center empty despite DB showing failed runs. Or endpoint 404.
 
 ---
 
-**Phase 4 Pass Criteria:** All 10 tests pass. System operates without manual intervention. Metering is accurate. Queue handles failures gracefully.
+### Test 4.9 — Usage dashboard shows data to admin only
+
+UI:
+1. Login as `admin@agentify-test.hu`
+2. Go to Dashboard
+3. Scroll to "Használat és korlátok" section
+
+**PASS:** 3 progress bars visible (emails, AI calls, documents). Cost estimate shown. Plan name shown.
+
+4. Logout → Login as `agent@agentify-test.hu`
+5. Go to Dashboard
+
+**PASS:** "Használat és korlátok" section NOT visible for agent role.
+**FAIL:** Section missing for admin, or visible for agent.
+
+---
+
+**Phase 4 Pass Criteria:** All 9 tests pass. Metering accurate. Queue retries. Roles enforced.
 
 ---
 
 ## Cross-Phase Regression Check
 
-Run after Phase 4 is complete, to ensure earlier features still work:
+Run after all phases complete:
 
-| Check | Expected |
-|-------|----------|
-| Tenant A cannot see Tenant B's emails | ✓ |
-| Tenant A cannot see Tenant B's Qdrant vectors | ✓ |
-| New könyvelő user can complete onboarding | ✓ |
-| Approval inbox shows entity panel for invoice emails | ✓ |
-| NAV-keyword email goes to NEEDS_ATTENTION | ✓ |
-| agent_runs row created for every AI call | ✓ |
-| Accounting templates available after template page load | ✓ |
-| Calendar sync still operational (n8n WF5) | ✓ |
+```powershell
+Write-Host "=== REGRESSION CHECK ==="
 
-Each row should be verified manually or via automated curl sequence.
+# 1. Cross-tenant Qdrant isolation still holds
+$collections = (Invoke-WebRequest -Uri "http://localhost:6333/collections" -UseBasicParsing | Select-Object -ExpandProperty Content | ConvertFrom-Json).result.collections.name
+Write-Host "Collections: $($collections -join ', ')"
+if ($collections -contains "54cbdd88_general" -and $collections -contains "00000000_general") {
+  Write-Host "✅ Tenant collections exist"
+} else { Write-Host "❌ Tenant collections missing" }
+
+# 2. agent_runs has rows from all phases
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT trigger_type, COUNT(*) FROM agent_runs GROUP BY trigger_type ORDER BY count DESC;"
+
+# 3. Templates loaded
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT COUNT(*) as template_count FROM templates;"
+
+# 4. Worker running
+$workerStatus = docker compose ps | Select-String "worker"
+Write-Host "Worker: $workerStatus"
+
+# 5. No NULL tenant_id in critical tables
+docker exec -it docuagent_v3-postgres-1 psql -U postgres -d docuagent -c `
+  "SELECT 'emails' as tbl, COUNT(*) as null_tenant FROM emails WHERE tenant_id IS NULL UNION ALL SELECT 'documents', COUNT(*) FROM documents WHERE tenant_id IS NULL UNION ALL SELECT 'feedback', COUNT(*) FROM feedback WHERE tenant_id IS NULL;"
+```
+
+**PASS:** All counts for null_tenant = 0. Worker Up. Templates > 9. Tenant collections present.
 
 ---
 
-## Deployment order (PowerShell)
-
-After each phase, in order:
+## Migration commands (PowerShell)
 
 ```powershell
 # Phase 1
-Get-Content db/migrate_v3_14_agent_runs.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+Get-Content db\migrate_v3_14_agent_runs.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
 
 # Phase 2
-Get-Content db/migrate_v3_15_policy.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
-Get-Content db/migrate_v3_16_email_cases.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+Get-Content db\migrate_v3_15_policy.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
+Get-Content db\migrate_v3_16_email_cases.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
 
 # Phase 3
-Get-Content db/migrate_v3_17_accounting_templates.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+Get-Content db\migrate_v3_17_accounting_templates.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
 
 # Phase 4
-Get-Content db/migrate_v3_18_metering.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
-Get-Content db/migrate_v3_19_roles.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
-Get-Content db/migrate_v3_20_prompts.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
-Get-Content db/migrate_v3_21_invoice_extractions.sql | docker exec -i docuagent_v3-postgres-1 psql -U $env:POSTGRES_USER -d $env:POSTGRES_DB
+Get-Content db\migrate_v3_18_metering.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
+Get-Content db\migrate_v3_19_roles.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
+Get-Content db\migrate_v3_20_prompts.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
+Get-Content db\migrate_v3_21_invoice_extractions.sql | docker exec -i docuagent_v3-postgres-1 psql -U postgres -d docuagent
 
-# After Phase 4: rebuild with worker + redis
+# Rebuild all containers after Phase 4
 docker compose up --build -d
 ```

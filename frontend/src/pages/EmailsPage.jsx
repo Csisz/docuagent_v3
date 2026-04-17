@@ -278,7 +278,15 @@ export default function EmailsPage({ defaultFilter }) {
 }
 
 function RagSources({ sources, isLight }) {
-  if (!sources || sources.length === 0) {
+  const uniqueSources = sources
+    ? [...new Map(
+        [...sources]
+          .sort((a, b) => (b.score || 0) - (a.score || 0))
+          .map(s => [s.filename, s])
+      ).values()]
+      .slice(0, 3)
+    : []
+  if (!uniqueSources.length) {
     return (
       <div className={isLight ? 'text-slate-400 text-[12px]' : 'text-zinc-600 text-[12px]'}>
         Nincs dokumentum forrás
@@ -287,7 +295,7 @@ function RagSources({ sources, isLight }) {
   }
   return (
     <div className="space-y-1.5">
-      {sources.map((s, i) => {
+      {uniqueSources.map((s, i) => {
         const pct = Math.round((s.score || 0) * 100)
         const scoreColor = pct >= 80 ? '#4ade80' : pct >= 60 ? '#fbbf24' : '#f87171'
         return (

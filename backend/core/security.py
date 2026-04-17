@@ -6,7 +6,9 @@ from fastapi.security.api_key import APIKeyHeader
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from core.config import DASHBOARD_API_KEY
+import hashlib
 import os
+import secrets
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -100,3 +102,50 @@ async def get_current_user_optional(
         return decode_token(credentials.credentials)
     except HTTPException:
         return None
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+async def get_tenant_from_api_key(api_key: str) -> Optional[str]:
+    """SHA256 lookup in tenant_api_keys. Updates last_used. Returns tenant_id or None."""
+    if not api_key:
+        return None
+
+    # Legacy dashboard key — no tenant scoping
+    if DASHBOARD_API_KEY and api_key == DASHBOARD_API_KEY:
+        return None
+
+    key_hash = _sha256(api_key)
+    try:
+        import db.database as _db
+        row = await _db.fetchrow(
+            "SELECT tenant_id FROM tenant_api_keys WHERE key_hash=$1 AND is_active=TRUE",
+            key_hash,
+        )
+        if not row:
+            return None
+        tenant_id = str(row["tenant_id"])
+        await _db.execute(
+            "UPDATE tenant_api_keys SET last_used=NOW() WHERE key_hash=$1",
+            key_hash,
+        )
+        return tenant_id
+    except Exception:
+        return None
+
+
+async def generate_api_key(tenant_id: str, label: Optional[str] = None) -> dict:
+    """Generates 'docagt_' + 64 hex chars, stores hash, returns full key once."""
+    raw_key = "docagt_" + secrets.token_hex(32)
+    key_prefix = raw_key[:15]
+    key_hash = _sha256(raw_key)
+
+    import db.database as _db
+    await _db.execute(
+        """INSERT INTO tenant_api_keys (tenant_id, key_hash, key_prefix, label)
+           VALUES ($1, $2, $3, $4)""",
+        tenant_id, key_hash, key_prefix, label,
+    )
+    return {"key": raw_key, "prefix": key_prefix, "label": label}

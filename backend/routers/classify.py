@@ -1,23 +1,23 @@
-"""
-Email osztályozás és válaszgenerálás.
+﻿"""
+Email osztĂˇlyozĂˇs Ă©s vĂˇlaszgenerĂˇlĂˇs.
 
-v3.4 változások:
+v3.4 vĂˇltozĂˇsok:
   - Feedback tenant isolation: get_feedback_context() kap tenant_id-t
-  - agent_runs: minden classify és reply_generate fut loggolva
-  - tenant_id a ClassifyRequest.tenant_id mezőből jön (ingest pipeline állítja be)
+  - agent_runs: minden classify Ă©s reply_generate fut loggolva
+  - tenant_id a ClassifyRequest.tenant_id mezĹ‘bĹ‘l jĂ¶n (ingest pipeline ĂˇllĂ­tja be)
 
-v3.3 változások:
-  - Email-specifikus prompt optimalizálás: ügyfélszolgálati kontextus,
-    pontosabb kategóriák, hangnem szabályok
-  - generate_reply logol a rag_logs táblába (latency, lang, confidence)
-  - Fallback logika: ha alacsony confidence → NEEDS_ATTENTION marad,
-    nem generál gyenge választ
+v3.3 vĂˇltozĂˇsok:
+  - Email-specifikus prompt optimalizĂˇlĂˇs: ĂĽgyfĂ©lszolgĂˇlati kontextus,
+    pontosabb kategĂłriĂˇk, hangnem szabĂˇlyok
+  - generate_reply logol a rag_logs tĂˇblĂˇba (latency, lang, confidence)
+  - Fallback logika: ha alacsony confidence â†’ NEEDS_ATTENTION marad,
+    nem generĂˇl gyenge vĂˇlaszt
 
 v3.16 (Phase 4 Part 2):
-  - 5-rétegű agent architektúra: Intake → Knowledge → Drafting → Compliance → Action
-  - asyncio.gather: intake + knowledge párhuzamosan fut
+  - 5-rĂ©tegĹ± agent architektĂşra: Intake â†’ Knowledge â†’ Drafting â†’ Compliance â†’ Action
+  - asyncio.gather: intake + knowledge pĂˇrhuzamosan fut
   - Policy engine: BASE_POLICY + DB tenant overrides
-  - Backward-compatible response shape megőrzve
+  - Backward-compatible response shape megĹ‘rzve
 """
 import asyncio
 import time
@@ -35,7 +35,7 @@ from models.schemas import (
 )
 from core.config import OPENAI_API_KEY, CONF_THRESHOLD, COMPANY_NAME
 
-# ── Agent layers ───────────────────────────────────────────────
+# â”€â”€ Agent layers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import agents.intake as intake_layer
 import agents.knowledge as knowledge_layer
 import agents.drafting as drafting_layer
@@ -45,36 +45,36 @@ import agents.action as action_layer
 router = APIRouter(prefix="/api", tags=["AI"])
 log    = logging.getLogger("docuagent")
 
-# ── Nyelv → hangnem utasítás ──────────────────────────────────
+# â”€â”€ Nyelv â†’ hangnem utasĂ­tĂˇs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _LANG_INSTRUCTION = {
     "HU": (
-        "Válaszolj magyarul. Legyen udvarias, empatikus és szakmai az üzenet. "
-        "Szólítsd meg az ügyfelet tegező helyett magázva. "
-        "Kerüld a túl formális vagy bürokratikus fogalmazást."
+        "VĂˇlaszolj magyarul. Legyen udvarias, empatikus Ă©s szakmai az ĂĽzenet. "
+        "SzĂłlĂ­tsd meg az ĂĽgyfelet tegezĹ‘ helyett magĂˇzva. "
+        "KerĂĽld a tĂşl formĂˇlis vagy bĂĽrokratikus fogalmazĂˇst."
     ),
     "EN": (
         "Reply in English. Be polite, empathetic and professional. "
         "Use a warm but formal tone. Address the customer respectfully."
     ),
     "DE": (
-        "Antworte auf Deutsch. Sei höflich, einfühlsam und professionell. "
-        "Verwende die Sie-Form. Vermeide bürokratische Formulierungen."
+        "Antworte auf Deutsch. Sei hĂ¶flich, einfĂĽhlsam und professionell. "
+        "Verwende die Sie-Form. Vermeide bĂĽrokratische Formulierungen."
     ),
 }
 
-# ── Válasz-generáló system prompt ─────────────────────────────
-_REPLY_SYSTEM = """{COMPANY_NAME} ügyfélszolgálati asszisztense vagy.
+# â”€â”€ VĂˇlasz-generĂˇlĂł system prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+_REPLY_SYSTEM = """{COMPANY_NAME} ĂĽgyfĂ©lszolgĂˇlati asszisztense vagy.
 
 {lang_instruction}
 
-Fontos szabályok:
-- Légy tömör: max 3-4 bekezdés
-- Kezdd köszönettel a megkereséséért
-- Válaszolj közvetlenül a feltett kérdésre
-- Ha konkrét lépéseket kell tenni, sorold fel pontokba
-- Fejezd be biztatással vagy következő lépés ajánlásával
-- NE írj tárgyat, aláírást vagy "Üdvözlettel" sort – ezt a rendszer hozzáadja
-- NE találj ki adatokat, amiről nem vagy biztos"""
+Fontos szabĂˇlyok:
+- LĂ©gy tĂ¶mĂ¶r: max 3-4 bekezdĂ©s
+- Kezdd kĂ¶szĂ¶nettel a megkeresĂ©sĂ©Ă©rt
+- VĂˇlaszolj kĂ¶zvetlenĂĽl a feltett kĂ©rdĂ©sre
+- Ha konkrĂ©t lĂ©pĂ©seket kell tenni, sorold fel pontokba
+- Fejezd be biztatĂˇssal vagy kĂ¶vetkezĹ‘ lĂ©pĂ©s ajĂˇnlĂˇsĂˇval
+- NE Ă­rj tĂˇrgyat, alĂˇĂ­rĂˇst vagy "ĂśdvĂ¶zlettel" sort â€“ ezt a rendszer hozzĂˇadja
+- NE talĂˇlj ki adatokat, amirĹ‘l nem vagy biztos"""
 
 
 @router.post("/classify", response_model=ClassifyResponse)
@@ -89,16 +89,16 @@ async def classify_email(req: ClassifyRequest):
     t_start   = time.monotonic()
     tenant_id = req.tenant_id  # may be None for external callers
 
-    # ── Quota check ────────────────────────────────────────────
+    # â”€â”€ Quota check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if tenant_id:
         allowed, remaining = await check_quota(tenant_id, "emails")
         if not allowed:
             raise HTTPException(
                 status_code=429,
-                detail="Havi email kvóta elérve. Kérjük lépjen magasabb csomagra.",
+                detail="Havi email kvĂłta elĂ©rve. KĂ©rjĂĽk lĂ©pjen magasabb csomagra.",
             )
 
-    # ── agent_run start ────────────────────────────────────────
+    # â”€â”€ agent_run start â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     run_id = None
     if tenant_id:
         run_id = await rq.create_run(
@@ -108,16 +108,16 @@ async def classify_email(req: ClassifyRequest):
             input_summary=f"Subject: {req.subject[:80]}",
         )
 
-    # ── Load tenant policy ─────────────────────────────────────
+    # â”€â”€ Load tenant policy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     policy = await get_policy(tenant_id)
 
-    # ── Layer 1+2: Intake & Knowledge (parallel) ───────────────
+    # â”€â”€ Layer 1+2: Intake & Knowledge (parallel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     intake_ctx, knowledge_ctx = await asyncio.gather(
         intake_layer.process(req.subject, req.body or "", policy, tenant_id),
         knowledge_layer.retrieve(req.subject, req.body or "", policy, tenant_id),
     )
 
-    # ── Learned override shortcut ──────────────────────────────
+    # â”€â”€ Learned override shortcut â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (
         policy.get("learning_enabled", True)
         and knowledge_ctx.forced_override
@@ -138,13 +138,13 @@ async def classify_email(req: ClassifyRequest):
         if run_id:
             await rq.finish_run(run_id, "success",
                                 latency_ms=int((time.monotonic() - t_start) * 1000),
-                                result_summary=f"learned_override → {status.value} sim={sim:.2f}")
-        log.info(f"Classify LEARNED: {req.subject[:40]} → {status} sim={sim:.3f}")
+                                result_summary=f"learned_override â†’ {status.value} sim={sim:.2f}")
+        log.info(f"Classify LEARNED: {req.subject[:40]} â†’ {status} sim={sim:.3f}")
         return ClassifyResponse(can_answer=can, confidence=conf, category=cat,
-                                reason=f"Tanult egyezés ({sim:.0%})",
+                                reason=f"Tanult egyezĂ©s ({sim:.0%})",
                                 status=status, learned_override=True)
 
-    # ── Layer 3: Drafting ──────────────────────────────────────
+    # â”€â”€ Layer 3: Drafting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try:
         draft_result = await drafting_layer.classify(
             req.subject, req.body or "",
@@ -167,12 +167,12 @@ async def classify_email(req: ClassifyRequest):
     # booking_intent: appointment category OR explicit flag from AI
     booking_intent = bool(out.booking_intent) or out.category == "appointment"
 
-    # ── Layer 4: Compliance ────────────────────────────────────
+    # â”€â”€ Layer 4: Compliance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     compliance = compliance_layer.evaluate(
         out, intake_ctx, req.subject, req.body or "", policy
     )
 
-    # ── Layer 5: Action ────────────────────────────────────────
+    # â”€â”€ Layer 5: Action â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     action_result = await action_layer.execute(
         email_id=req.email_id,
         subject=req.subject,
@@ -184,11 +184,11 @@ async def classify_email(req: ClassifyRequest):
         tenant_id=tenant_id,
     )
 
-    # ── Usage metering ─────────────────────────────────────────
+    # â”€â”€ Usage metering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if tenant_id:
         await increment_usage(tenant_id, "emails_processed")
 
-    # ── Finish run ─────────────────────────────────────────────
+    # â”€â”€ Finish run â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     latency_ms = int((time.monotonic() - t_start) * 1000)
     if run_id:
         case_info = f" case={action_result.case_id}" if action_result.case_linked else ""
@@ -202,7 +202,7 @@ async def classify_email(req: ClassifyRequest):
         )
 
     log.info(
-        f"Classify: '{req.subject[:40]}' → {compliance.status} "
+        f"Classify: '{req.subject[:40]}' â†’ {compliance.status} "
         f"conf={out.confidence} urgency={out.urgency_score} "
         f"sentiment={out.sentiment} booking={booking_intent} "
         f"domain={compliance.domain_tag} case_linked={action_result.case_linked}"
@@ -235,9 +235,28 @@ async def generate_reply(req: ReplyRequest):
         lang_instruction=lang_instr
     )
 
+    # RAG keresés a tenant dokumentumaiban
+    tenant_id = getattr(req, "tenant_id", None)
+    rag_results = []
+    rag_context = ""
+    try:
+        from services import qdrant_service
+        rag_results = await qdrant_service.search_multi(
+            f"{req.subject} {(req.body or "")[:500]}",
+            tenant_id=tenant_id,
+            limit_per=3,
+            score_threshold=0.35
+        )
+        if rag_results:
+            rag_context = "\n\nRelevant knowledge base context:\n" + "\n---\n".join(
+                f"[{r["filename"]}]: {r["text"]}" for r in rag_results[:4]
+            )
+    except Exception as e:
+        log.warning(f"RAG search failed: {e}")
+
     try:
         reply = await openai_service.chat(
-            [{"role": "system", "content": sys_prompt},
+            [{"role": "system", "content": sys_prompt + rag_context},
              {"role": "user",   "content": (
                  f"Kategória: {req.category.value}\n"
                  f"Tárgy: {req.subject}\n\n"
@@ -267,4 +286,7 @@ async def generate_reply(req: ReplyRequest):
     )
 
     log.info(f"Reply generated [{lang}] {latency_ms}ms: '{req.subject[:50]}'")
-    return {"reply": reply, "email_id": req.email_id, "language": lang, "latency_ms": latency_ms}
+    source_docs = [{"filename": r["filename"], "score": r["score"], "collection": r["collection"]} for r in rag_results]
+    return {"reply": reply, "email_id": req.email_id, "language": lang, "latency_ms": latency_ms, "sources": source_docs}
+
+

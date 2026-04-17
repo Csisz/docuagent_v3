@@ -829,10 +829,10 @@ function UsageCard() {
         </a>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 32px' }}>
-        <UsageBar label="Feldolgozott emailek" used={usage.emails_processed || 0} limit={usage.emails_limit || 0} />
-        <UsageBar label="AI hívások"           used={usage.ai_calls || 0}         limit={usage.ai_calls_limit || 0} />
-        <UsageBar label="Dokumentumok"         used={usage.documents_stored || 0} limit={usage.documents_limit || 0} />
-        <UsageBar label="Tárolt visszajelzések" used={usage.feedback_stored || 0} limit={0} />
+        <UsageBar label="Feldolgozott emailek" used={usage.usage?.emails_processed || 0} limit={usage.quotas?.max_emails_per_month || 0} />
+        <UsageBar label="AI hívások"           used={usage.usage?.ai_calls_made || 0} limit={usage.quotas?.max_ai_calls_per_month || 0} />
+        <UsageBar label="Dokumentumok"         used={usage.usage?.documents_stored || 0} limit={usage.quotas?.max_documents || 0} />
+        <UsageBar label="Tárolt visszajelzések" used={usage.usage?.rag_queries || 0} limit={0} />
       </div>
     </div>
   )

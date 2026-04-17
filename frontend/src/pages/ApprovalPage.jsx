@@ -134,6 +134,14 @@ function EntityPanel({ email }) {
 function SourceTrustPanel({ sources, confidence }) {
   const [open, setOpen] = useState(false)
   const lowConf = confidence != null && confidence < 0.6
+  const uniqueSources = sources
+    ? [...new Map(
+        [...sources]
+          .sort((a, b) => (b.score || 0) - (a.score || 0))
+          .map(s => [s.filename, s])
+      ).values()]
+      .slice(0, 3)
+    : []
 
   return (
     <div style={{
@@ -171,11 +179,11 @@ function SourceTrustPanel({ sources, confidence }) {
               ⚠ Alacsony bizonyossági szint — ajánlott emberi felülvizsgálat
             </div>
           )}
-          {!sources?.length ? (
+          {!uniqueSources.length ? (
             <div style={{ fontSize: 12, color: '#475569', fontStyle: 'italic', padding: '0.25rem 0' }}>
               Általános tudás alapján (nem talált releváns dokumentumot)
             </div>
-          ) : sources.map((s, i) => {
+          ) : uniqueSources.map((s, i) => {
             const score = typeof s.score === 'number' ? s.score : 0
             const pct   = Math.round(score * 100)
             return (

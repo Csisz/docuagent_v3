@@ -1,17 +1,17 @@
-"""
+﻿"""
 Pydantic adatmodellek.
 
-v3.2 változás: az ai_decision JSONB mező mostantól típusos
+v3.2 vĂˇltozĂˇs: az ai_decision JSONB mezĹ‘ mostantĂłl tĂ­pusos
 AiDecision modellel van kezelve, nem nyers dict-tel.
-Az email státuszok és kategóriák enum-ként vannak definiálva,
-így a frontend nem tud érvénytelen értéket küldeni.
+Az email stĂˇtuszok Ă©s kategĂłriĂˇk enum-kĂ©nt vannak definiĂˇlva,
+Ă­gy a frontend nem tud Ă©rvĂ©nytelen Ă©rtĂ©ket kĂĽldeni.
 """
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
-# ── Enumerációk ───────────────────────────────────────────────
+# â”€â”€ EnumerĂˇciĂłk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class EmailStatus(str, Enum):
     NEW              = "NEW"
@@ -27,10 +27,10 @@ class EmailCategory(str, Enum):
     OTHER       = "other"
 
 
-# ── AI döntés (tipizált JSONB) ────────────────────────────────
+# â”€â”€ AI dĂ¶ntĂ©s (tipizĂˇlt JSONB) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class AiDecision(BaseModel):
-    """Az ai_decision JSONB mező típusos reprezentációja."""
+    """Az ai_decision JSONB mezĹ‘ tĂ­pusos reprezentĂˇciĂłja."""
     can_answer:       bool
     confidence:       float = Field(ge=0.0, le=1.0)
     reason:           str   = ""
@@ -39,7 +39,7 @@ class AiDecision(BaseModel):
     sentiment:        str   = "neutral"   # positive | neutral | negative | angry
 
 
-# ── Request modellek ──────────────────────────────────────────
+# â”€â”€ Request modellek â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ClassifyRequest(BaseModel):
     email_id:  Optional[str] = None
@@ -52,16 +52,17 @@ class ClassifyRequest(BaseModel):
     @classmethod
     def not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Nem lehet üres")
+            raise ValueError("Nem lehet ĂĽres")
         return v
 
 
 class ReplyRequest(BaseModel):
+    tenant_id: Optional[str] = None
     email_id: Optional[str]          = None
     subject:  str
     body:     str
     category: EmailCategory          = EmailCategory.OTHER
-    language: Optional[str]          = None   # ha None → auto-detect
+    language: Optional[str]          = None   # ha None â†’ auto-detect
 
 
 class FeedbackRequest(BaseModel):
@@ -83,11 +84,11 @@ class RagRequest(BaseModel):
     @classmethod
     def not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("A keresési kifejezés nem lehet üres")
+            raise ValueError("A keresĂ©si kifejezĂ©s nem lehet ĂĽres")
         return v
 
 
-# ── Response modellek ─────────────────────────────────────────
+# â”€â”€ Response modellek â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ClassifyResponse(BaseModel):
     can_answer:       bool
@@ -96,36 +97,36 @@ class ClassifyResponse(BaseModel):
     reason:           str
     status:           EmailStatus
     learned_override: bool = False
-    urgency_score:    int  = 0       # 0–100, AI által becsült sürgősség
+    urgency_score:    int  = 0       # 0â€“100, AI Ăˇltal becsĂĽlt sĂĽrgĹ‘ssĂ©g
     sentiment:        str  = "neutral"  # positive | neutral | negative | angry
-    booking_intent:   bool = False   # időpont-foglalási szándék jelzője
+    booking_intent:   bool = False   # idĹ‘pont-foglalĂˇsi szĂˇndĂ©k jelzĹ‘je
 
 
-# ── RAG request bővítés (v3.3) ────────────────────────────────
+# â”€â”€ RAG request bĹ‘vĂ­tĂ©s (v3.3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class RagQueryRequest(BaseModel):
-    """Bővített RAG kérés email_id-vel és nyelvi beállítással."""
+    """BĹ‘vĂ­tett RAG kĂ©rĂ©s email_id-vel Ă©s nyelvi beĂˇllĂ­tĂˇssal."""
     query:    str
     email_id: Optional[str] = None
-    language: Optional[str] = None   # HU / EN / DE, ha None → auto-detect
+    language: Optional[str] = None   # HU / EN / DE, ha None â†’ auto-detect
 
     @field_validator("query")
     @classmethod
     def not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("A keresési kifejezés nem lehet üres")
+            raise ValueError("A keresĂ©si kifejezĂ©s nem lehet ĂĽres")
         return v
 
 
 class SourceDoc(BaseModel):
-    """Egy találat forrás-dokumentum adatai."""
+    """Egy talĂˇlat forrĂˇs-dokumentum adatai."""
     filename:   str
     score:      float
     collection: str
 
 
 class RagResponse(BaseModel):
-    """RAG végpont tipizált válasza."""
+    """RAG vĂ©gpont tipizĂˇlt vĂˇlasza."""
     found:      bool
     answer:     Optional[str]
     fallback:   bool = False
@@ -134,7 +135,7 @@ class RagResponse(BaseModel):
     latency_ms: int = 0
 
 
-# ── Auth / Tenant sémák ───────────────────────────────────────
+# â”€â”€ Auth / Tenant sĂ©mĂˇk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TenantCreate(BaseModel):
     name: str
@@ -172,3 +173,4 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
     tenant: TenantResponse
+

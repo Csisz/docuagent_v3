@@ -1,7 +1,7 @@
-"""
-Minden SQL lekérdezés egy helyen.
-A router/service réteg csak ezeket a függvényeket hívja,
-soha nem ír nyers SQL-t.
+﻿"""
+Minden SQL lekĂ©rdezĂ©s egy helyen.
+A router/service rĂ©teg csak ezeket a fĂĽggvĂ©nyeket hĂ­vja,
+soha nem Ă­r nyers SQL-t.
 """
 import json
 from typing import Optional
@@ -9,9 +9,9 @@ from datetime import datetime, timezone
 import db.database as db
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # EMAILS
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def get_email_by_id(email_id: str):
     return await db.fetchrow(
@@ -20,7 +20,7 @@ async def get_email_by_id(email_id: str):
 
 
 async def get_email_with_rag(email_id: str):
-    """Email részletek a legutóbbi RAG log forrásaival (LATERAL JOIN)."""
+    """Email rĂ©szletek a legutĂłbbi RAG log forrĂˇsaival (LATERAL JOIN)."""
     return await db.fetchrow(
         """SELECT
                e.*,
@@ -124,7 +124,7 @@ async def delete_email_by_id(email_id: str):
 
 
 async def get_approval_queue(tenant_id: Optional[str] = None, limit: int = 50):
-    """NEEDS_ATTENTION emailek confidence + legutóbbi RAG forrásokkal."""
+    """NEEDS_ATTENTION emailek confidence + legutĂłbbi RAG forrĂˇsokkal."""
     base = """
         SELECT
             e.id, e.subject, e.sender, e.body,
@@ -167,15 +167,15 @@ async def get_approval_queue_count(tenant_id: Optional[str] = None) -> int:
     return int(row["count"]) if row else 0
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # FEEDBACK
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def insert_feedback(email_id: str, ai_decision: str,
                            user_decision: str, note: str,
                            tenant_id: Optional[str] = None):
-    """Feedback mentése. tenant_id opcionális — ha megadva, a feedback közvetlenül is
-    tenant-hoz van kötve (a JOIN úgyis elvégzi a scoping-ot lekérdezéskor)."""
+    """Feedback mentĂ©se. tenant_id opcionĂˇlis â€” ha megadva, a feedback kĂ¶zvetlenĂĽl is
+    tenant-hoz van kĂ¶tve (a JOIN Ăşgyis elvĂ©gzi a scoping-ot lekĂ©rdezĂ©skor)."""
     return await db.execute(
         """INSERT INTO feedback(email_id, ai_decision, user_decision, note, tenant_id)
            VALUES($1,$2,$3,$4,$5)""",
@@ -184,7 +184,7 @@ async def insert_feedback(email_id: str, ai_decision: str,
 
 
 async def get_recent_feedback(limit: int = 30, tenant_id: Optional[str] = None):
-    """Legutóbbi feedback sorok az emailek adataival együtt, tenant-ra szűrve."""
+    """LegutĂłbbi feedback sorok az emailek adataival egyĂĽtt, tenant-ra szĹ±rve."""
     if tenant_id:
         return await db.fetch(
             """SELECT e.subject, e.body, e.category, f.user_decision, f.ai_decision
@@ -202,7 +202,7 @@ async def get_recent_feedback(limit: int = 30, tenant_id: Optional[str] = None):
 
 
 async def get_feedback_for_prompt(limit: int = 10, tenant_id: Optional[str] = None):
-    """Rövid lista a prompt kontextushoz, tenant-ra szűrve."""
+    """RĂ¶vid lista a prompt kontextushoz, tenant-ra szĹ±rve."""
     if tenant_id:
         return await db.fetch(
             """SELECT f.ai_decision, f.user_decision, e.subject, e.category
@@ -227,9 +227,9 @@ async def get_feedback_count(tenant_id: Optional[str] = None):
     return await db.fetchrow("SELECT COUNT(*) FROM feedback")
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # DOCUMENTS
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def insert_document(doc_id: str, filename: str, uploader: str,
                            uploader_email: str, tag: str, department: str,
@@ -257,7 +257,7 @@ async def soft_delete_document(doc_id: str):
 
 async def update_document_qdrant_status(doc_id: str, qdrant_ok: bool,
                                          collection: str, lang: str):
-    """Background ingest tasz után frissíti a dokumentum Qdrant státuszát és nyelvét."""
+    """Background ingest tasz utĂˇn frissĂ­ti a dokumentum Qdrant stĂˇtuszĂˇt Ă©s nyelvĂ©t."""
     return await db.execute(
         """UPDATE documents
            SET qdrant_ok=$2, qdrant_collection=$3, lang=$4
@@ -295,9 +295,9 @@ async def list_documents(limit: int = 10, tenant_id: str = None):
     )
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # DASHBOARD / STATS
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def get_status_stats(days: int, tenant_id: Optional[str] = None):
     if tenant_id:
@@ -377,7 +377,7 @@ async def get_recent_activity(limit: int = 8, tenant_id: Optional[str] = None):
 
 
 async def get_insights_stats():
-    """AI insights oldalhoz - státusz + kategória bontás."""
+    """AI insights oldalhoz - stĂˇtusz + kategĂłria bontĂˇs."""
     stats = await db.fetch(
         "SELECT status, COUNT(*) AS c, AVG(confidence) AS ac FROM emails WHERE created_at > NOW() - INTERVAL '7 days' GROUP BY status"
     )
@@ -387,21 +387,21 @@ async def get_insights_stats():
     return stats, cats
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # RAG LOGS  (v3.3)
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def insert_rag_log(email_id: Optional[str], query: str, answer: Optional[str],
                           fallback_used: bool, confidence: float,
                           source_docs: list, collection: str,
-                          lang: str, latency_ms: int):
+                          lang: str, latency_ms: int, tenant_id: Optional[str] = None):
     import json as _json
     return await db.execute(
         """INSERT INTO rag_logs
-           (email_id, query, answer, fallback_used, confidence,
+           (tenant_id, email_id, query, answer, fallback_used, confidence,
             sources_count, source_docs, collection, lang, latency_ms)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)""",
-        email_id, query, answer, fallback_used, confidence,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)""",
+        tenant_id, email_id, query, answer, fallback_used, confidence,
         len(source_docs), _json.dumps(source_docs), collection, lang, latency_ms
     )
 
@@ -418,12 +418,12 @@ async def get_rag_stats(days: int = 7):
     )
 
 
-# ══════════════════════════════════════════════════════════════
-# CONFIG  (kulcs-érték tároló — SLA és egyéb beállításokhoz)
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# CONFIG  (kulcs-Ă©rtĂ©k tĂˇrolĂł â€” SLA Ă©s egyĂ©b beĂˇllĂ­tĂˇsokhoz)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
-    """Visszaad egy config értéket kulcs alapján. Ha nincs, default-ot ad."""
+    """Visszaad egy config Ă©rtĂ©ket kulcs alapjĂˇn. Ha nincs, default-ot ad."""
     row = await db.fetchrow(
         "SELECT value FROM config WHERE key=$1", key
     )
@@ -433,7 +433,7 @@ async def get_config(key: str, default: Optional[str] = None) -> Optional[str]:
 
 
 async def set_config(key: str, value: str) -> None:
-    """Beállít vagy frissít egy config értéket (upsert)."""
+    """BeĂˇllĂ­t vagy frissĂ­t egy config Ă©rtĂ©ket (upsert)."""
     await db.execute(
         """INSERT INTO config (key, value)
            VALUES ($1, $2)
@@ -442,12 +442,12 @@ async def set_config(key: str, value: str) -> None:
     )
 
 
-# ══════════════════════════════════════════════════════════════
-# SLA  (válaszidő tracking)
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# SLA  (vĂˇlaszidĹ‘ tracking)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def get_sla_summary(warning_hours: float, breach_hours: float):
-    """Összesítő: hány email ok/warning/breach státuszban van."""
+    """Ă–sszesĂ­tĹ‘: hĂˇny email ok/warning/breach stĂˇtuszban van."""
     return await db.fetchrow(
         """SELECT
              COUNT(*) FILTER (
@@ -469,7 +469,7 @@ async def get_sla_summary(warning_hours: float, breach_hours: float):
 
 
 async def get_sla_emails(warning_hours: float, breach_hours: float):
-    """Nyitott emailek SLA adatokkal (age_hours számítva)."""
+    """Nyitott emailek SLA adatokkal (age_hours szĂˇmĂ­tva)."""
     return await db.fetch(
         """SELECT id, subject, sender, status, urgent, created_at,
                   EXTRACT(EPOCH FROM (NOW() - created_at))/3600 AS age_hours
@@ -479,9 +479,9 @@ async def get_sla_emails(warning_hours: float, breach_hours: float):
     )
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # CHAT SESSIONS
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def create_chat_session(tenant_id: str, user_id: str, title: str = None):
     return await db.fetchrow(
@@ -521,7 +521,7 @@ async def insert_chat_message(session_id: str, role: str, content: str,
 
 
 async def get_chat_history(session_id: str, limit: int = 10):
-    """Utolsó N üzenet a session-ből, DESC sorrendben (legújabb először)."""
+    """UtolsĂł N ĂĽzenet a session-bĹ‘l, DESC sorrendben (legĂşjabb elĹ‘szĂ¶r)."""
     return await db.fetch(
         """SELECT role, content FROM chat_messages
            WHERE session_id=$1
@@ -541,9 +541,9 @@ async def delete_chat_session(session_id: str):
     await db.execute("DELETE FROM chat_sessions WHERE id=$1", session_id)
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # CALENDAR EVENTS
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def get_calendar_events(tenant_id: str, from_dt=None, to_dt=None):
     if from_dt and to_dt:
@@ -592,7 +592,7 @@ async def delete_calendar_event(event_id: str):
 
 async def upsert_calendar_event(tenant_id: str, event: dict) -> dict:
     """
-    Google Calendar szinkron: INSERT or UPDATE google_event_id alapján.
+    Google Calendar szinkron: INSERT or UPDATE google_event_id alapjĂˇn.
     UNIQUE constraint on google_event_id required for ON CONFLICT to work.
     Returns row dict with 'inserted' bool key.
     """
@@ -634,7 +634,7 @@ async def upsert_calendar_event(tenant_id: str, event: dict) -> dict:
 
 
 async def link_google_event(event_id: str, google_event_id: str) -> dict:
-    """n8n visszahívás után: google_event_id és last_synced_at beállítása."""
+    """n8n visszahĂ­vĂˇs utĂˇn: google_event_id Ă©s last_synced_at beĂˇllĂ­tĂˇsa."""
     return await db.fetchrow(
         """UPDATE calendar_events
            SET google_event_id = $2,
@@ -645,9 +645,9 @@ async def link_google_event(event_id: str, google_event_id: str) -> dict:
     )
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # ONBOARDING
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def get_onboarding_state(tenant_id: str):
     return await db.fetchrow(
@@ -680,9 +680,9 @@ async def complete_onboarding(tenant_id: str) -> dict:
     )
 
 
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # POLICY OVERRIDES
-# ══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 async def get_policy_overrides(tenant_id: str) -> list:
     """Return all policy overrides for a tenant."""
@@ -702,3 +702,5 @@ async def set_policy_override(tenant_id: str, rule_key: str, rule_value: str) ->
                  updated_at = NOW()""",
         tenant_id, rule_key, rule_value,
     )
+
+

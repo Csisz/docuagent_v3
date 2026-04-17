@@ -19,7 +19,7 @@ import uuid
 import logging
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 import db.queries as q
@@ -305,9 +305,13 @@ async def get_document_status(
 # ── RAG query ─────────────────────────────────────────────────
 
 @router.post("/rag/query")
-async def rag_query(req: RagRequest):
+async def rag_query(req: RagRequest, request: Request):
     """
     RAG keresés dokumentumokban.
+
+    Autentikáció: Bearer JWT vagy X-API-Key header.
+    X-API-Key esetén a tenant_api_keys táblából derül ki a tenant_id,
+    és a Qdrant keresés csak az adott tenant dokumentumaira szűkül.
 
     Response:
       found        – volt-e elég biztos találat
@@ -324,9 +328,17 @@ async def rag_query(req: RagRequest):
     email_id = getattr(req, "email_id", None)
     lang     = getattr(req, "language", "HU") or "HU"
 
-    # ── 1. Keresés (multi-collection, no tenant scope on public endpoint) ─
+    # ── Tenant scope from X-API-Key header ───────────────────────
+    rag_tenant_id: Optional[str] = None
+    if request is not None:
+        api_key = request.headers.get("X-API-Key")
+        if api_key:
+            from core.security import get_tenant_from_api_key
+            rag_tenant_id = await get_tenant_from_api_key(api_key)
+
+    # ── 1. Keresés (multi-collection, tenant-scoped if key provided) ─
     try:
-        results = await qdrant_service.search_multi(req.query)
+        results = await qdrant_service.search_multi(req.query, tenant_id=rag_tenant_id)
     except Exception as e:
         log.warning(f"Qdrant query hiba: {e}")
         return {"found": False, "answer": None, "error": str(e)}

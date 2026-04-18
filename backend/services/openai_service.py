@@ -125,12 +125,12 @@ async def chat(
                 try:
                     from services.metering import increment_usage
                     cost = round(tokens / 1000 * _COST_PER_1K.get(chosen, 0.00015), 6)
-                    await increment_usage(tenant_id, "tokens_consumed", float(tokens))
+                    await increment_usage(tenant_id, "tokens_consumed", int(tokens))
                     await increment_usage(tenant_id, "ai_calls_made", 1)
                     if cost > 0:
                         await increment_usage(tenant_id, "cost_usd", cost)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning(f"metering failed: {e}")
             return content
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:

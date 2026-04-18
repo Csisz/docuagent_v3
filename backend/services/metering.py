@@ -63,7 +63,7 @@ async def increment_usage(tenant_id: str, field: str, value: float = 1.0) -> Non
             tenant_id, start, end, value,
         )
     except Exception as e:
-        log.debug(f"metering increment failed: {e}")
+        log.warning(f"metering increment failed: {e}")
 
 
 async def get_usage_summary(tenant_id: str) -> dict:

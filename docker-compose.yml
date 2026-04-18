@@ -115,10 +115,7 @@ services:
     networks:
       - docuagent
     healthcheck:
-      test: >
-        CMD python -c
-        "import time,os; t=float(open('/tmp/worker_alive').read());
-        assert time.time()-t < 300, 'worker stale'"
+      test: ["CMD-SHELL", "python -c \"import time; t=float(open('/tmp/worker_alive').read()); assert time.time()-t < 300, 'worker stale'\""]
       interval: 60s
       timeout: 10s
       retries: 3

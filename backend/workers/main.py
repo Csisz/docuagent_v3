@@ -21,7 +21,9 @@ def _parse_redis_settings(url: str) -> RedisSettings:
 
 async def startup(ctx):
     import db.database as database
+    from workers.tasks import _heartbeat
     await database.init_pool()
+    _heartbeat()
     log.info("arq worker: DB pool initialized")
 
 async def shutdown(ctx):

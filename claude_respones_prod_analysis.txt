@@ -1,76 +1,59 @@
-claude code responses:
+All 5 checks pass — everything is already in place:
 
-All services up. All 5 fixes are applied and running:
+Check	Status
+A1 — security.py: no change-me, crashes with sys.exit(1) if JWT_SECRET_KEY unset	✅ line 15-19
+A2 — config.py: PRODUCTION check + ALLOWED_ORIGINS="*" warning	✅ line 34-38
+A3 — docker-compose.yml: redis service has redis_data:/data volume mount	✅ line 62
+A4 — main.py: GET /health endpoint present	✅ line 94-95
+A5 — .env.example: JWT_SECRET_KEY with secrets.token_hex(32) comment + REDIS_URL documented	✅ lines 48-61
+Nothing to fix. All A-series hardening from earlier sessions is intact in the committed code.
 
-A1 — security.py:15-19: JWT_SECRET_KEY now crashes with a clear fatal message instead of silently using an insecure default.
-A2 — config.py:31-37: ALLOWED_ORIGINS="*" with PRODUCTION=true logs a security warning at startup.
-A3 — docker-compose.yml:60-61: redis_data:/data volume mount added — arq queue now survives Redis restarts.
-A4 — docker-compose.yml:94-99: Backend healthcheck added; main.py:79-81: GET /health endpoint returns {"status":"ok","version":"3.2"}.
-A5 — .env.example:47-52: Security vars now carry REQUIRED IN PRODUCTION guidance and REDIS_URL is documented.
+All 4 checks pass — everything is already implemented:
 
-All fixes were already in place from the previous session. The two adjustments made now:
+Check	Status
+B1 — openai_service.py: tokens_consumed, ai_calls_made, cost_usd via increment_usage	✅ lines 126-131
+B2 — tasks.py: documents_stored after successful Qdrant insert	✅ lines 53-54
+B3/B4 — qdrant_service.py search_multi(): rag_queries when results non-empty	✅ lines 244-245
+Nothing to fix — all B-series metering is intact. You can run the psql verification query directly to confirm it's collecting data in usage_records.
 
-B1 — openai_service.py:124: Added if cost > 0: guard — skips the DB write when tokens=0 (e.g. mocked/error responses).
-B4 — qdrant_service.py:242: Changed to if tenant_id and all_results: — rag_queries only counts searches that actually returned results.
+All 3 checks pass — everything is already in place:
 
+Check	Status
+C1 — Quota check: check_quota(tenant_id, "emails") fires before insert, demo tenant exempted (!= "00000000-...")	✅ lines 286-297
+C2 — Tenant resolution: 4-tier (API key → body → DASHBOARD_API_KEY fallback → hard reject with error)	✅ lines 272-283
+C3 — Audit log: _alog.insert_audit_log() called after successful insert	✅ lines 317-319
+Nothing to fix. You can run the PowerShell verify command directly — the reject response is already wired at line 283.
 
-Done. All 4 fixes applied to emails.py:
+All 3 checks pass — everything is already implemented:
 
-C1 (line 257): Quota check fires before any DB insert or AI work. Demo tenant is exempted. On failure, logs and continues (non-blocking).
-C2 (line 241): Tenant resolution now has 4 tiers — API key lookup → body field → legacy DASHBOARD_API_KEY → hard reject with clear error message. No more silent fallback to Demo for unauthenticated callers.
-C3 (line 329): Already correct from the previous session. Cleaned up the unused import json as _json inside that block.
-C4 (line 287): alog.insert_audit_log() called after successful insert, using the actual function signature from audit_queries.py (not the log_event() the spec mentioned). Wrapped in try/except so it can never break ingest.
+Check	Status
+D1 — GET /api/emails/pending-senior + POST /api/approvals/{email_id}/senior-approve (admin-only, audit log)	✅ lines 107-131, 661-695
+D2 — auto_extract_invoice task in tasks.py, registered in WorkerSettings.functions, enqueued from ingest	✅ tasks.py:134, main.py:33, emails.py:398
+D3 — insert_rag_log(..., collection="classify") after knowledge agent in classify path	✅ classify.py:207-223
+Nothing to fix.
 
+All 4 checks pass — everything is already implemented:
 
-All deployed. Summary of changes:
+Check	Status
+E1 — core/limiter.py exists; @limiter.limit("30/minute") on classify, @limiter.limit("60/minute") on ingest	✅
+E2 — 3-attempt retry loop with asyncio.sleep(2**attempt) for 429/5xx/timeout	✅ openai_service.py:113-152
+E3 — dest.unlink(missing_ok=True) after successful Qdrant insert	✅ tasks.py:60
+E4 — Startup banner logs OPENAI_API_KEY, JWT_SECRET_KEY, QDRANT_URL, REDIS_URL	✅ main.py:44-48
+Nothing to fix.
 
-D1 — Senior approval endpoints (emails.py):
+All 3 checks pass — everything is already implemented:
 
-GET /api/emails/pending-senior — placed before the {email_id} wildcard route to prevent path collision; returns emails with senior_required=TRUE scoped to the caller's tenant.
-POST /api/approvals/{email_id}/senior-approve — admin-only role check, clears senior_required, writes audit log via alog.insert_audit_log().
-D2 — Invoice arq trigger (emails.py, tasks.py, main.py):
+Check	Status
+F1 — Size check (413), MIME validation via python-magic (415), _MAX_FILE_BYTES from MAX_UPLOAD_MB env	✅ documents.py:41-205
+F2 — "in_reply_to": row.get("message_id", "") in all 3 webhook payloads (approve, edit-and-approve, send-reply)	✅ emails.py:474, 572, 639
+F3 — retention.py exists; daily_retention_cleanup task in tasks.py; cron_jobs = [cron(..., hour=2, minute=0)] in WorkerSettings	✅ all confirmed
+Nothing to fix.
 
-Keyword detection in ingest_email fires after classify, enqueues auto_extract_invoice via arq pool — no fragile asyncio.create_task.
-auto_extract_invoice task: skips if extraction already exists, guards on confidence < 0.4, inserts into invoice_extractions with ON CONFLICT DO NOTHING.
-Registered in WorkerSettings.functions.
-D3 — RAG source logging in classify path (classify.py):
+All 4 checks pass — everything is already implemented:
 
-After rq.finish_run() and before log.info, inserts knowledge_ctx.sources into rag_logs with collection="classify" — feeds the approval queue source panel. Uses knowledge_ctx.top_score < 0.35 as the fallback_used signal.
-
-Clean build, slowapi-0.1.9 installed, all containers up. Summary of what was applied:
-
-E1 — Per-tenant rate limiting (core/limiter.py — new file):
-
-Limiter lives in core/limiter.py instead of main.py to prevent circular imports (main imports routers, routers would import main).
-Key function extracts tenant_id from JWT Bearer → rate limits by tenant, not IP. Falls back to IP only for unauthenticated callers.
-classify_email gets @limiter.limit("30/minute") with request: Optional[Request] = None — optional so direct internal calls from emails.py skip rate limiting cleanly.
-ingest_email gets @limiter.limit("60/minute") — already had request: Request.
-E2 — Retry with exponential backoff (openai_service.py):
-
-3 attempts: timeouts/connection errors and 429/5xx retry with 1s → 2s waits. 4xx client errors raise immediately.
-Metering (tokens, cost, ai_calls) only fires on success, inside the loop — no double-count if earlier attempts fail. B-series metering is superseded (same logic, now inside retry loop).
-E3 — Upload cleanup (tasks.py):
-
-dest.unlink(missing_ok=True) after qdrant_ok=True. Failed ingests keep the file for debugging and arq retry.
-E4 — Startup validation (main.py):
-
-60-char banner on startup showing OPENAI_API_KEY, QDRANT_URL, REDIS_URL, JWT_SECRET_KEY (SET/MISSING), and ALLOWED_ORIGINS.
-
-All containers started. F-series complete:
-
-F1 — MIME/size security in documents.py: rejects files >20 MB (configurable via MAX_UPLOAD_MB) and blocks disallowed MIME types via python-magic. Added libmagic1 to Dockerfile, python-magic>=0.4.27 to requirements.txt, MAX_UPLOAD_MB=20 to .env.example.
-
-F2 — Added "in_reply_to": row.get("message_id", "") to all three n8n webhook payloads in emails.py (approve_email, edit_and_approve, send_reply) so n8n can set proper In-Reply-To headers for Gmail threading.
-
-F3 — Created services/retention.py with run_retention_cleanup(), get_tenant_data_export(), and delete_tenant_data(). Added daily_retention_cleanup arq task to workers/tasks.py and registered it in workers/main.py with cron_jobs = [cron(daily_retention_cleanup, hour=2, minute=0)].
-
-All containers started. G-series complete:
-
-G1 — agents/compliance.py: Added HU_LEGAL_DISCLAIMER, TAX_ADVICE_TRIGGERS, should_add_disclaimer(), and add_disclaimer: bool = False field to ComplianceDecision. Tax-domain rule sets add_disclaimer when trigger words are found. routers/classify.py: generate_reply calls should_add_disclaimer() after generating the reply and appends the disclaimer if triggered.
-
-G2 — agents/intake.py: Added _normalize_hu_dates() (ISO 8601 normalization for 2024. március 15. / 2024.03.15 patterns) and _normalize_hu_amounts() (150 000 Ft → 150000 HUF). Both called when building IntakeContext.
-
-G3 — routers/dashboard.py: Added GET /api/metrics — no auth, checks Postgres and Qdrant, returns ok or degraded with per-dependency status.
-
-G4 — workers/tasks.py: _heartbeat() writes current timestamp to /tmp/worker_alive at the start of process_document and auto_extract_invoice. docker-compose.yml: Worker healthcheck reads that file and fails if it's >300s stale.
-
+Check	Status
+G1 — HU_LEGAL_DISCLAIMER, TAX_ADVICE_TRIGGERS, should_add_disclaimer(), add_disclaimer: bool = False in ComplianceDecision	✅ compliance.py:17-46
+G2 — _normalize_hu_dates() and _normalize_hu_amounts() called when building IntakeContext	✅ intake.py:35-119
+G3 — GET /api/metrics endpoint exists in dashboard.py	✅ dashboard.py:191
+G4 — /tmp/worker_alive written at task start; worker healthcheck in docker-compose.yml reads it	✅ tasks.py:16, docker-compose.yml:120
+Nothing to fix.

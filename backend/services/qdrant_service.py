@@ -239,6 +239,12 @@ async def search_multi(query_text: str, collections: Optional[list[str]] = None,
             log.warning(f"search_multi hiba ({col}): {e}")
 
     all_results.sort(key=lambda x: x["score"], reverse=True)
+    if tenant_id and all_results:
+        try:
+            from services.metering import increment_usage
+            await increment_usage(tenant_id, "rag_queries", 1)
+        except Exception:
+            pass
     return all_results[:limit_per * 2]
 
 

@@ -24,3 +24,7 @@ email-validator>=2.0.0
 # Async job queue
 arq>=0.25.0
 redis>=5.0.0
+
+# Per-tenant rate limiting
+slowapi>=0.1.9
+python-magic>=0.4.27

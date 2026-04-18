@@ -12,7 +12,11 @@ import secrets
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    import sys
+    print("FATAL: JWT_SECRET_KEY environment variable is not set", file=sys.stderr)
+    sys.exit(1)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 

@@ -4,6 +4,7 @@ Chat completions + embedding generálás.
 
 v3.13: AI Gateway — model routing + usage logging.
 """
+import asyncio
 import uuid
 import logging
 import httpx
@@ -93,9 +94,10 @@ async def chat(
     tenant_id: Optional[str] = None,
 ) -> str:
     """
-    Chat completion.
-    model=None → select_model(task_type, confidence_required) alapján választ.
-    Logol az ai_usage_log táblába.
+    Chat completion with exponential-backoff retry (3 attempts).
+    Retries on: timeout, connection error, 429, 5xx.
+    Does NOT retry on 4xx client errors (except 429).
+    Logs to ai_usage_log and increments usage_records on success.
     """
     chosen = model or select_model(task_type, confidence_required)
 
@@ -107,16 +109,47 @@ async def chat(
     if json_mode:
         body["response_format"] = {"type": "json_object"}
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(CHAT_URL, headers=_auth_headers(), json=body)
-        r.raise_for_status()
-        data    = r.json()
-        content = data["choices"][0]["message"]["content"]
-        tokens  = data.get("usage", {}).get("total_tokens", 0)
+    last_error = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(CHAT_URL, headers=_auth_headers(), json=body)
+                r.raise_for_status()
+                data    = r.json()
+                content = data["choices"][0]["message"]["content"]
+                tokens  = data.get("usage", {}).get("total_tokens", 0)
 
-    log.debug(f"AI Gateway: task={task_type} model={chosen} tokens={tokens}")
-    await _log_usage(chosen, task_type, tokens, tenant_id)
-    return content
+            log.debug(f"AI Gateway: task={task_type} model={chosen} tokens={tokens} attempt={attempt + 1}")
+            await _log_usage(chosen, task_type, tokens, tenant_id)
+            if tenant_id:
+                try:
+                    from services.metering import increment_usage
+                    cost = round(tokens / 1000 * _COST_PER_1K.get(chosen, 0.00015), 6)
+                    await increment_usage(tenant_id, "tokens_consumed", float(tokens))
+                    await increment_usage(tenant_id, "ai_calls_made", 1)
+                    if cost > 0:
+                        await increment_usage(tenant_id, "cost_usd", cost)
+                except Exception:
+                    pass
+            return content
+
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            last_error = e
+            if attempt < 2:
+                wait = 2 ** attempt  # 1s, then 2s
+                log.warning(f"OpenAI timeout attempt {attempt + 1}/3, retrying in {wait}s: {e}")
+                await asyncio.sleep(wait)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429 or e.response.status_code >= 500:
+                last_error = e
+                if attempt < 2:
+                    wait = 2 ** attempt
+                    log.warning(f"OpenAI HTTP {e.response.status_code} attempt {attempt + 1}/3, retrying in {wait}s")
+                    await asyncio.sleep(wait)
+            else:
+                raise  # 4xx client errors: don't retry
+
+    raise RuntimeError(f"OpenAI failed after 3 attempts: {last_error}")
 
 
 async def embed(text: str) -> list[float]:

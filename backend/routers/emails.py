@@ -1,5 +1,5 @@
-﻿"""
-Email kezelĂ©s: lista, stĂˇtusz frissĂ­tĂ©s, tĂ¶rlĂ©s, ingest.
+"""
+Email kezeles: lista, statusz frissites, torles, ingest.
 """
 import os
 import uuid
@@ -14,6 +14,7 @@ import db.queries as q
 import db.database as _db
 from models.schemas import StatusUpdateRequest, FeedbackRequest, EmailStatus
 from core.config import OPENAI_API_KEY, N8N_LABEL_WEBHOOK
+from core.limiter import limiter
 from core.security import require_api_key, get_current_user_optional, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Emails"])
@@ -55,7 +56,7 @@ async def list_emails(
     }
 
 
-# â”€â”€ Approval Inbox endpointok â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Approval Inbox endpoints ──────────────────────────────────
 
 def _serialize_approval(row) -> dict:
     import json as _json
@@ -76,7 +77,6 @@ def _serialize_approval(row) -> dict:
         "rag_sources":   [],
         "rag_confidence": None,
     }
-    # RAG forrĂˇs docs
     src = row.get("source_docs")
     if src:
         try:
@@ -94,7 +94,7 @@ async def approval_queue(
     limit: int = 50,
     current_user: dict = Depends(get_current_user)
 ):
-    """NEEDS_ATTENTION emailek confidence + RAG forrĂˇsokkal. SĂĽrgĹ‘sĂ©g szerint rendezve."""
+    """NEEDS_ATTENTION emailek confidence + RAG forrasokkal. Surgosseg szerint rendezve."""
     tenant_id = current_user.get("tenant_id")
     rows = await q.get_approval_queue(tenant_id, limit)
     count = await q.get_approval_queue_count(tenant_id)
@@ -104,17 +104,47 @@ async def approval_queue(
     }
 
 
+@router.get("/emails/pending-senior")
+async def pending_senior_approvals(
+    current_user: dict = Depends(get_current_user),
+):
+    tenant_id = current_user.get("tenant_id")
+    rows = await _db.fetch(
+        """SELECT id, subject, sender, urgency_score, created_at
+           FROM emails
+           WHERE tenant_id=$1
+             AND senior_required=TRUE
+             AND status='NEEDS_ATTENTION'
+           ORDER BY urgency_score DESC, created_at DESC
+           LIMIT 50""",
+        tenant_id,
+    )
+    return {
+        "emails": [
+            {
+                "id": str(r["id"]),
+                "subject": r["subject"],
+                "sender": r["sender"],
+                "urgency_score": r["urgency_score"],
+                "created_at": r["created_at"].isoformat(),
+            }
+            for r in (rows or [])
+        ],
+        "count": len(rows or []),
+    }
+
+
 @router.get("/emails/{email_id}")
 async def get_email(
     email_id: str,
     current_user: Optional[dict] = Depends(get_current_user_optional),
     _auth=Security(require_api_key)
 ):
-    """Email rĂ©szletek + legutĂłbbi RAG forrĂˇsai."""
+    """Email reszletek + legutobbi RAG forrasai."""
     import json as _json
     row = await q.get_email_with_rag(email_id)
     if not row:
-        raise HTTPException(404, "Email nem talĂˇlhatĂł")
+        raise HTTPException(404, "Email nem talalhato")
 
     src = row["source_docs"]
     if isinstance(src, str):
@@ -164,7 +194,7 @@ async def update_status(
 
     if old != req.status.value:
         await q.insert_feedback(email_id, ai, req.status.value, req.note or "")
-        log.info(f"Status update + feedback: {email_id} {old} â†’ {req.status.value}")
+        log.info(f"Status update + feedback: {email_id} {old} -> {req.status.value}")
 
         if N8N_LABEL_WEBHOOK and row["message_id"]:
             try:
@@ -175,7 +205,7 @@ async def update_status(
                         "old_status":       old,
                         "new_status":       req.status.value,
                     })
-                log.info(f"n8n label webhook: {row['message_id']} â†’ {req.status.value}")
+                log.info(f"n8n label webhook: {row['message_id']} -> {req.status.value}")
             except Exception as e:
                 log.warning(f"n8n label webhook failed: {e}")
 
@@ -215,11 +245,12 @@ async def store_feedback(req: FeedbackRequest):
         req.email_id, req.original_ai_decision,
         req.new_status.value, req.note or ""
     )
-    log.info(f"Feedback: {req.email_id} {req.original_ai_decision} â†’ {req.new_status.value}")
+    log.info(f"Feedback: {req.email_id} {req.original_ai_decision} -> {req.new_status.value}")
     return {"status": "ok", "email_id": req.email_id, "new_status": req.new_status.value}
 
 
 @router.post("/email-log")
+@limiter.limit("60/minute")
 async def ingest_email(request: Request):
     from routers.classify import classify_email, generate_reply
     from models.schemas import ClassifyRequest, ReplyRequest
@@ -232,16 +263,39 @@ async def ingest_email(request: Request):
     sender     = data.get("from", data.get("sender", ""))
     body       = data.get("body", data.get("text", ""))
 
-    # Tenant meghatĂˇrozĂˇsa â€” prioritĂˇs sorrendben:
-    # 1. X-API-Key header â†’ tenant_api_keys tĂˇbla lookup
-    # 2. Request body tenant_id mezĹ‘ (backward compat)
-    # 3. Default tenant
+    # Tenant resolution — priority order:
+    # 1. X-API-Key header -> tenant_api_keys table lookup
+    # 2. Request body tenant_id field (backward compat)
+    # 3. Legacy DASHBOARD_API_KEY callers -> Demo tenant
+    # 4. Reject
     api_key   = request.headers.get("X-API-Key")
     tenant_id = await get_tenant_from_api_key(api_key) if api_key else None
-    if not tenant_id:
-        tenant_id = data.get("tenant_id") or "00000000-0000-0000-0000-000000000001"
 
-    
+    if not tenant_id:
+        tenant_id = data.get("tenant_id")
+
+    if not tenant_id:
+        from core.config import DASHBOARD_API_KEY
+        if api_key and DASHBOARD_API_KEY and api_key == DASHBOARD_API_KEY:
+            tenant_id = "00000000-0000-0000-0000-000000000001"
+        else:
+            log.warning("email-log: tenant could not be resolved, rejecting")
+            return {"status": "error", "detail": "Tenant azonositasa sikertelen. Allitson be X-API-Key headert."}
+
+    # Quota check — refuse before doing any AI work
+    if tenant_id and tenant_id != "00000000-0000-0000-0000-000000000001":
+        try:
+            from services.metering import check_quota
+            allowed, remaining = await check_quota(tenant_id, "emails")
+            if not allowed:
+                log.warning(f"email-log quota exceeded: tenant={tenant_id[:8]}")
+                return {
+                    "status": "quota_exceeded",
+                    "detail": "Havi email kvota elerte. Lepjen magasabb csomagra.",
+                }
+        except Exception as qe:
+            log.debug(f"quota check failed (continuing): {qe}")
+
     category   = data.get("category", "other")
     urgent     = bool(data.get("urgent", False))
     ai_reply   = data.get("ai_reply", "")
@@ -258,7 +312,22 @@ async def ingest_email(request: Request):
         log.error(f"Insert error: {e}")
         return {"status": "error", "detail": str(e)}
 
-    # CRM: auto contact upsert a feladĂł alapjĂˇn
+    # Audit log — fire-and-forget, must never break ingest
+    try:
+        import db.audit_queries as _alog
+        await _alog.insert_audit_log(
+            tenant_id=tenant_id,
+            user_id=None,
+            user_email=None,
+            action="email_ingested",
+            entity_type="email",
+            entity_id=email_id,
+            details={"subject": subject[:80], "sender": sender, "source": "n8n"},
+        )
+    except Exception:
+        pass
+
+    # CRM: auto contact upsert based on sender
     try:
         from routers.crm import upsert_contact_from_sender
         await upsert_contact_from_sender(tenant_id, sender)
@@ -270,8 +339,9 @@ async def ingest_email(request: Request):
     if OPENAI_API_KEY:
         try:
             clf = await classify_email(ClassifyRequest(
-                email_id=email_id, subject=subject, body=body or "", sender=sender
-            ))
+                email_id=email_id, subject=subject, body=body or "", sender=sender,
+                tenant_id=tenant_id
+            ), request=request)
             confidence = clf.confidence
             status     = clf.status.value
             learned    = clf.learned_override
@@ -285,10 +355,8 @@ async def ingest_email(request: Request):
                         tenant_id=tenant_id
                     ))
                     ai_reply = reply_resp.get("reply", "")
-                    # RAG forrásokat mentjük a rag_logs táblába
                     sources = reply_resp.get("sources", [])
                     if sources:
-                        import json as _json
                         await q.insert_rag_log(
                             email_id=email_id,
                             query=subject,
@@ -310,13 +378,33 @@ async def ingest_email(request: Request):
         status = "AI_ANSWERED"
         await q.update_email_status(email_id, "AI_ANSWERED")
 
+    # Auto-trigger invoice extraction if invoice signals detected
+    _invoice_signals = ["szamla", "szla", "fizetes", "invoice", "INV-", "SZ-", "dijbekero"]
+    body_lower = (body or "").lower()
+    subject_lower = subject.lower()
+    has_invoice_signal = any(
+        s.lower() in body_lower or s.lower() in subject_lower for s in _invoice_signals
+    )
+    if has_invoice_signal and email_id and tenant_id:
+        try:
+            redis_url = os.getenv("REDIS_URL", "")
+            if redis_url:
+                from arq import create_pool
+                from arq.connections import RedisSettings
+                url_clean = redis_url.replace("redis://", "")
+                host_port = url_clean.split("/")[0].split(":")
+                rs = RedisSettings(host=host_port[0], port=int(host_port[1]) if len(host_port) > 1 else 6379)
+                pool = await create_pool(rs)
+                await pool.enqueue_job("auto_extract_invoice", email_id, tenant_id)
+                await pool.aclose()
+                log.info(f"Invoice auto-extract queued: email={email_id[:8]}")
+        except Exception as e:
+            log.debug(f"Invoice queue enqueue failed (non-fatal): {e}")
+
     log.info(f"Ingested: '{subject[:50]}' status={status} conf={confidence:.2f} learned={learned}")
-    # Metering increment
     try:
         from services.metering import increment_usage
         await increment_usage(tenant_id, "emails_processed", 1)
-        if OPENAI_API_KEY and status in ("AI_ANSWERED", "NEEDS_ATTENTION"):
-            await increment_usage(tenant_id, "ai_calls_made", 1)
     except Exception as m_err:
         log.debug(f"Metering skip: {m_err}")
     return {
@@ -342,19 +430,16 @@ async def approve_email(
     email_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    JĂłvĂˇhagyja az AI Ăˇltal javasolt vĂˇlaszt Ă©s elkĂĽldi.
-    Az ai_response meglĂ©vĹ‘ szĂ¶vegĂ©t kĂĽldi ki.
-    """
+    """Jovahagyja az AI altal javasolt valaszt es elküldi."""
     row = await q.get_email_by_id(email_id)
     if not row:
-        raise HTTPException(404, "Email nem talĂˇlhatĂł")
+        raise HTTPException(404, "Email nem talalhato")
     if row["status"] not in ("NEEDS_ATTENTION", "NEW"):
-        raise HTTPException(400, f"Email nem jĂłvĂˇhagyhatĂł ebben az Ăˇllapotban: {row['status']}")
+        raise HTTPException(400, f"Email nem jovahagyható ebben az allapotban: {row['status']}")
 
     reply_text = (row["ai_response"] or "").strip()
     if not reply_text:
-        raise HTTPException(400, "Nincs AI vĂˇlasz javaslat â€” elĹ‘bb szerkeszd meg")
+        raise HTTPException(400, "Nincs AI valasz javaslat -- elobb szerkeszd meg")
 
     is_demo = current_user.get("tenant_slug", "") == "demo"
     if is_demo:
@@ -369,12 +454,12 @@ async def approve_email(
             _json.dumps({"subject": row.get("subject", ""), "demo": True}),
         )
         return {"status": "mock_sent", "demo": True,
-                "message": "Demo mĂłdban az email nem kerĂĽl elkĂĽldĂ©sre"}
+                "message": "Demo modban az email nem kerul elkuldésre"}
 
     await q.update_email_reply(email_id, reply_text)
     await q.insert_feedback(
         email_id, row["status"], "AI_ANSWERED",
-        f"JĂłvĂˇhagyva: {current_user.get('email', 'unknown')}"
+        f"Jovahagyva: {current_user.get('email', 'unknown')}"
     )
 
     n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
@@ -386,6 +471,7 @@ async def approve_email(
                 resp = await c.post(n8n_send_webhook, json={
                     "email_id":         email_id,
                     "gmail_message_id": row["message_id"],
+                    "in_reply_to":      row.get("message_id", ""),
                     "reply_text":       reply_text,
                     "approved_by":      current_user.get("email"),
                     "sender":           row["sender"],
@@ -407,7 +493,7 @@ async def approve_email(
         current_user.get("email", ""), email_id,
         _json.dumps({"subject": row.get("subject", ""), "sent_via": sent_via, "demo": False}),
     )
-    return {"status": "ok", "email_id": email_id, "sent_via": sent_via}  # noqa: RET504
+    return {"status": "ok", "email_id": email_id, "sent_via": sent_via}
 
 
 @router.post("/emails/{email_id}/reject")
@@ -416,12 +502,12 @@ async def reject_email(
     req: RejectRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """ElutasĂ­tja az emailt â€” CLOSED stĂˇtuszra ĂˇllĂ­tja, feedback-et ment."""
+    """Elutasitja az emailt -- CLOSED statusra allitja, feedback-et ment."""
     row = await q.get_email_by_id(email_id)
     if not row:
-        raise HTTPException(404, "Email nem talĂˇlhatĂł")
+        raise HTTPException(404, "Email nem talalhato")
 
-    note = (req.note or "").strip() or f"ElutasĂ­tva: {current_user.get('email', 'unknown')}"
+    note = (req.note or "").strip() or f"Elutasitva: {current_user.get('email', 'unknown')}"
     await q.update_email_status(email_id, "CLOSED")
     await q.insert_feedback(email_id, row["status"], "CLOSED", note)
 
@@ -443,14 +529,14 @@ async def edit_and_approve(
     req: EditApproveRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Szerkesztett vĂˇlaszt kĂĽld â€” felĂĽlĂ­rja az AI javaslatot, majd elkĂĽldi."""
+    """Szerkesztett valaszt kuldhet -- felulirja az AI javaslatot, majd elküldi."""
     reply_text = req.reply.strip()
     if not reply_text:
-        raise HTTPException(400, "A szerkesztett vĂˇlasz nem lehet ĂĽres")
+        raise HTTPException(400, "A szerkesztett valasz nem lehet ures")
 
     row = await q.get_email_by_id(email_id)
     if not row:
-        raise HTTPException(404, "Email nem talĂˇlhatĂł")
+        raise HTTPException(404, "Email nem talalhato")
 
     is_demo = current_user.get("tenant_slug", "") == "demo"
     if is_demo:
@@ -465,13 +551,13 @@ async def edit_and_approve(
             _json.dumps({"subject": row.get("subject", ""), "demo": True, "note": req.note or ""}),
         )
         return {"status": "mock_sent", "demo": True,
-                "message": "Demo mĂłdban az email nem kerĂĽl elkĂĽldĂ©sre"}
+                "message": "Demo modban az email nem kerul elkuldésre"}
 
     await q.update_email_reply(email_id, reply_text)
     await q.insert_feedback(
         email_id, row["status"], "AI_ANSWERED",
-        f"Szerkesztve Ă©s jĂłvĂˇhagyva: {current_user.get('email', 'unknown')}"
-        + (f" â€” {req.note}" if req.note else "")
+        f"Szerkesztve es jovahagyva: {current_user.get('email', 'unknown')}"
+        + (f" -- {req.note}" if req.note else "")
     )
 
     n8n_send_webhook = os.getenv("N8N_SEND_REPLY_WEBHOOK", "")
@@ -483,6 +569,7 @@ async def edit_and_approve(
                 resp = await c.post(n8n_send_webhook, json={
                     "email_id":         email_id,
                     "gmail_message_id": row["message_id"],
+                    "in_reply_to":      row.get("message_id", ""),
                     "reply_text":       reply_text,
                     "approved_by":      current_user.get("email"),
                     "sender":           row["sender"],
@@ -514,18 +601,18 @@ async def send_reply(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Agent Ăˇltal jĂłvĂˇhagyott vĂˇlasz elkĂĽldĂ©se.
-    1. Ha N8N_SEND_REPLY_WEBHOOK be van ĂˇllĂ­tva â†’ n8n-en Gmail reply
-    2. Fallback: csak DB frissĂ­tĂ©s + naplĂł
+    Agent altal jovahagyott valasz elkuldese.
+    1. Ha N8N_SEND_REPLY_WEBHOOK be van allitva -> n8n-en Gmail reply
+    2. Fallback: csak DB frissites + naplo
     """
     data = await request.json()
     reply_text = data.get("reply", "").strip()
     if not reply_text:
-        raise HTTPException(400, "Ăśres vĂˇlasz nem kĂĽldhetĹ‘")
+        raise HTTPException(400, "Ures valasz nem küldheto")
 
     row = await q.get_email_by_id(email_id)
     if not row:
-        raise HTTPException(404, "Email nem talĂˇlhatĂł")
+        raise HTTPException(404, "Email nem talalhato")
 
     await q.update_email_reply(email_id, reply_text)
     await q.insert_feedback(
@@ -549,6 +636,7 @@ async def send_reply(
                 resp = await c.post(n8n_send_webhook, json={
                     "email_id":         email_id,
                     "gmail_message_id": row["message_id"],
+                    "in_reply_to":      row.get("message_id", ""),
                     "reply_text":       reply_text,
                     "approved_by":      current_user.get("email"),
                     "sender":           row["sender"],
@@ -570,4 +658,45 @@ async def send_reply(
     }
 
 
+@router.post("/approvals/{email_id}/senior-approve")
+async def senior_approve(
+    email_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    role = current_user.get("role", "")
+    if role != "admin":
+        raise HTTPException(403, "Csak admin szerepkör végezhet senior jovahagyast")
 
+    tenant_id = current_user.get("tenant_id")
+    email = await q.get_email_by_id(email_id)
+    if not email or str(email.get("tenant_id", "")) != str(tenant_id):
+        raise HTTPException(404, "Email nem talalhato")
+
+    await q.update_email_status(email_id, "AI_ANSWERED")
+    try:
+        await _db.execute(
+            "UPDATE emails SET senior_required=FALSE WHERE id=$1", email_id
+        )
+    except Exception:
+        pass  # column may not exist on older schemas
+
+    try:
+        import db.audit_queries as _alog
+        await _alog.insert_audit_log(
+            tenant_id=tenant_id,
+            user_id=current_user.get("user_id"),
+            user_email=current_user.get("email"),
+            action="senior_approve",
+            entity_type="email",
+            entity_id=email_id,
+            details={"subject": (email.get("subject") or "")[:80]},
+        )
+    except Exception:
+        pass
+
+    log.info(f"Senior approved: email={email_id} by={current_user.get('email')} tenant={str(tenant_id)[:8]}")
+    return {
+        "status":      "ok",
+        "email_id":    email_id,
+        "approved_by": current_user.get("email"),
+    }

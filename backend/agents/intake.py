@@ -32,6 +32,49 @@ Rules:
 """
 
 
+def _normalize_hu_dates(dates: list) -> list:
+    """Normalize Hungarian date formats to ISO 8601."""
+    import re
+    normalized = []
+    hu_months = {
+        "január": "01", "február": "02", "március": "03", "április": "04",
+        "május": "05", "június": "06", "július": "07", "augusztus": "08",
+        "szeptember": "09", "október": "10", "november": "11", "december": "12",
+        "jan": "01", "feb": "02", "már": "03", "ápr": "04",
+        "máj": "05", "jún": "06", "júl": "07", "aug": "08",
+        "szept": "09", "okt": "10", "nov": "11", "dec": "12",
+    }
+    for d in dates:
+        if re.match(r"\d{4}-\d{2}-\d{2}", d):
+            normalized.append(d)
+            continue
+        m = re.match(r"(\d{4})[.\s]+(\d{1,2})[.\s]+(\d{1,2})", d)
+        if m:
+            normalized.append(f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}")
+            continue
+        for hu_month, num in hu_months.items():
+            pattern = rf"{hu_month}\w*\.?\s+(\d{{1,2}})"
+            m2 = re.search(pattern, d.lower())
+            if m2:
+                normalized.append(f"????-{num}-{m2.group(1).zfill(2)}")
+                break
+        else:
+            normalized.append(d)
+    return normalized
+
+
+def _normalize_hu_amounts(amounts: list) -> list:
+    """Normalize Hungarian amount formats: '150 000 Ft' → '150000 HUF'."""
+    import re
+    normalized = []
+    for a in amounts:
+        cleaned = re.sub(r"\s+", "", a)
+        cleaned = re.sub(r"(?i)ft\.?", " HUF", cleaned)
+        cleaned = re.sub(r"(?i)forint", " HUF", cleaned)
+        normalized.append(cleaned.strip())
+    return normalized
+
+
 @dataclass
 class IntakeContext:
     invoice_ids: list = field(default_factory=list)
@@ -72,8 +115,8 @@ async def process(
         parsed = json.loads(raw)
         return IntakeContext(
             invoice_ids=parsed.get("invoice_ids", []),
-            dates=parsed.get("dates", []),
-            amounts=parsed.get("amounts", []),
+            dates=_normalize_hu_dates(parsed.get("dates", [])),
+            amounts=_normalize_hu_amounts(parsed.get("amounts", [])),
             company_names=parsed.get("company_names", []),
             urgency_signals=parsed.get("urgency_signals", []),
             raw_entities=parsed,

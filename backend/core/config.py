@@ -28,7 +28,15 @@ PORT         = int(os.getenv("PORT", "8000"))
 
 # ── Biztonság ─────────────────────────────────────────────────
 DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
-ALLOWED_ORIGINS   = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+ALLOWED_ORIGINS   = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
+if _raw_origins.strip() == "*" and os.getenv("PRODUCTION", "").lower() == "true":
+    import logging as _logging
+    _logging.getLogger("docuagent").warning(
+        "SECURITY WARNING: ALLOWED_ORIGINS is '*' in a PRODUCTION environment. "
+        "Set ALLOWED_ORIGINS to your actual domain."
+    )
 
 # ── Fájlkezelés ───────────────────────────────────────────────
 BASE_DIR     = Path(__file__).parent.parent

@@ -4,7 +4,8 @@ arq WorkerSettings - async Redis job queue.
 import logging
 import os
 from arq.connections import RedisSettings
-from workers.tasks import process_document, reindex_tenant_documents
+from arq.cron import cron
+from workers.tasks import process_document, reindex_tenant_documents, auto_extract_invoice, daily_retention_cleanup
 
 log = logging.getLogger("docuagent")
 
@@ -29,7 +30,8 @@ async def shutdown(ctx):
     log.info("arq worker: DB pool closed")
 
 class WorkerSettings:
-    functions = [process_document, reindex_tenant_documents]
+    functions  = [process_document, reindex_tenant_documents, auto_extract_invoice, daily_retention_cleanup]
+    cron_jobs  = [cron(daily_retention_cleanup, hour=2, minute=0)]
     on_startup  = startup
     on_shutdown = shutdown
     redis_settings = _parse_redis_settings(REDIS_URL)

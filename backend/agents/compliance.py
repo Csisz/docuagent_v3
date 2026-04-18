@@ -14,6 +14,27 @@ from services.policy_engine import TAX_KEYWORDS, INVOICE_KEYWORDS
 
 log = logging.getLogger("docuagent")
 
+HU_LEGAL_DISCLAIMER = (
+    "\n\n---\n"
+    "⚠️ Jogi és adózási tájékoztató: Ez a válasz általános tájékoztatásul szolgál és "
+    "nem minősül végleges adótanácsadásnak. Konkrét adózási kérdésekben kérjük, "
+    "konzultáljon könyvelőjével vagy adótanácsadójával."
+)
+
+TAX_ADVICE_TRIGGERS = [
+    "kata", "szja bevallás", "áfa visszaigénylés", "társasági adó",
+    "adóoptimalizálás", "adókedvezmény", "adómentesség",
+]
+
+
+def should_add_disclaimer(domain_tag: str, full_text: str, policy: dict) -> bool:
+    if not policy.get("hu_legal_disclaimer_enabled", True):
+        return False
+    if domain_tag != "tax":
+        return False
+    lower = full_text.lower()
+    return any(trigger in lower for trigger in TAX_ADVICE_TRIGGERS)
+
 
 @dataclass
 class ComplianceDecision:
@@ -22,6 +43,7 @@ class ComplianceDecision:
     veto_reason: Optional[str] = None
     domain_tag: Optional[str] = None   # "tax" | "invoice" | None
     senior_required: bool = False
+    add_disclaimer: bool = False
 
 
 def _contains_keywords(text: str, keywords: list) -> bool:
@@ -102,6 +124,7 @@ def evaluate(
             status="NEEDS_ATTENTION",
             veto_reason="tax domain detected — requires human review",
             domain_tag=domain_tag,
+            add_disclaimer=should_add_disclaimer(domain_tag, full_text, policy),
         )
 
     # ── Rule 5: appointment always needs human ────────────────

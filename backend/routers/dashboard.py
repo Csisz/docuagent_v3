@@ -188,6 +188,44 @@ async def _check_n8n() -> bool:
         return False
 
 
+@router.get("/metrics")
+async def metrics():
+    """
+    Operational metrics for monitoring.
+    No auth required — intended for internal health checks and alerting.
+    Returns degraded status if any dependency is down.
+    """
+    from core.config import QDRANT_URL
+    import db.database as _db2
+
+    db_ok     = False
+    qdrant_ok = False
+
+    try:
+        await _db2.fetchrow("SELECT 1")
+        db_ok = True
+    except Exception:
+        pass
+
+    try:
+        async with httpx.AsyncClient(timeout=3) as c:
+            r = await c.get(f"{QDRANT_URL}/healthz")
+            qdrant_ok = r.status_code == 200
+    except Exception:
+        pass
+
+    overall = "ok" if db_ok and qdrant_ok else "degraded"
+
+    return {
+        "status":  overall,
+        "version": "3.2",
+        "dependencies": {
+            "postgres": "ok" if db_ok     else "down",
+            "qdrant":   "ok" if qdrant_ok else "down",
+        },
+    }
+
+
 @router.get("/rag-stats")
 async def rag_stats(days: int = 7, _auth=Security(require_api_key)):
     """RAG lekérdezések statisztikái: fallback arány, átlagos latency, confidence."""

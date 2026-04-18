@@ -14,6 +14,7 @@ v3.3 változások:
   - Logolás: minden rag/query hívás bekerül a rag_logs táblába
   - Multi-collection: tag alapján kerül a megfelelő Qdrant collection-be
 """
+import os
 import time
 import uuid
 import logging
@@ -36,6 +37,17 @@ from core.security import get_current_user
 
 router = APIRouter(prefix="/api", tags=["Documents"])
 log    = logging.getLogger("docuagent")
+
+_MAX_FILE_BYTES = int(os.getenv("MAX_UPLOAD_MB", "20")) * 1024 * 1024
+_ALLOWED_MIME_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain",
+    "text/csv",
+}
 
 
 # ── Suggest-tag request model ─────────────────────────────────
@@ -180,6 +192,18 @@ async def upload_doc(
         raise HTTPException(400, f"Nem támogatott formátum: {ext}")
 
     content  = await file.read()
+
+    if len(content) > _MAX_FILE_BYTES:
+        raise HTTPException(413, f"Fájl mérete meghaladja a {os.getenv('MAX_UPLOAD_MB', '20')} MB limitet")
+
+    try:
+        import magic as _magic
+        mime = _magic.from_buffer(content, mime=True)
+        if mime not in _ALLOWED_MIME_TYPES:
+            raise HTTPException(415, f"Nem engedélyezett fájltípus: {mime}")
+    except ImportError:
+        pass  # python-magic not available — fall back to extension-only check
+
     size_kb  = round(len(content) / 1024)
     dest     = UPLOAD_DIR / f"{uuid.uuid4().hex[:8]}_{file.filename}"
     dest.write_bytes(content)

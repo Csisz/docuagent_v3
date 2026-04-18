@@ -15,11 +15,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from core.config import PORT, ALLOWED_ORIGINS, UPLOAD_DIR
+from core.limiter import limiter
 import db.database as database
 from routers import auth, classify, emails, documents, dashboard, sla, chat, calendar, onboarding, templates, demo, agents, audit, crm, integrations, gateway, runs, invoice_workflow, metering, api_keys
 
@@ -36,11 +39,23 @@ _BASE = Path(__file__).parent
 async def lifespan(app: FastAPI):
     UPLOAD_DIR.mkdir(exist_ok=True)
     await database.init_pool()
+    import os as _os
+    log.info("=" * 60)
+    log.info("DocuAgent v3 startup")
+    log.info(f"  OPENAI_API_KEY  : {'SET' if _os.getenv('OPENAI_API_KEY') else 'MISSING ⚠️'}")
+    log.info(f"  QDRANT_URL      : {_os.getenv('QDRANT_URL', 'not set')}")
+    log.info(f"  REDIS_URL       : {_os.getenv('REDIS_URL', 'not set')}")
+    log.info(f"  JWT_SECRET_KEY  : {'SET' if _os.getenv('JWT_SECRET_KEY') else 'MISSING ⚠️'}")
+    log.info(f"  ALLOWED_ORIGINS : {ALLOWED_ORIGINS}")
+    log.info("=" * 60)
     yield
     await database.close_pool()
 
 
 app = FastAPI(title="DocuAgent API", version="3.2", lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,6 +89,11 @@ app.include_router(runs.router)
 app.include_router(invoice_workflow.router)
 app.include_router(metering.router)
 app.include_router(api_keys.router)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "version": "3.2"}
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

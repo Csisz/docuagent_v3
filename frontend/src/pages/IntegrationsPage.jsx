@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
+import APIKeysPanel from '../components/APIKeysPanel'
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -585,6 +586,17 @@ export default function IntegrationsPage() {
           <WidgetCard   status={status} />
         </div>
       )}
+
+      {/* API Keys */}
+      <div style={{ maxWidth: 680, marginTop: 32 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 4 }}>API Kulcsok</div>
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginBottom: 16 }}>
+          Programozói hozzáférés — n8n, külső rendszerek, webhookok
+        </div>
+        <div style={cardStyle}>
+          <APIKeysPanel />
+        </div>
+      </div>
     </div>
   )
 }

@@ -219,6 +219,32 @@ async def verify_invoice(
     return {"extraction": _serialize(updated)}
 
 
+@router.put("/{extraction_id}")
+async def update_invoice(
+    extraction_id: str,
+    req: VerifyRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """PUT alias for verify — REST-idiomatic save with audit log."""
+    tenant_id = current_user["tenant_id"]
+    result = await verify_invoice(extraction_id, req, current_user)
+
+    try:
+        import db.database as _adb
+        await _adb.execute(
+            """INSERT INTO audit_log (tenant_id, user_id, action, resource_type, resource_id, details)
+               VALUES ($1, $2, 'invoice_save', 'invoice_extraction', $3, $4::jsonb)""",
+            tenant_id,
+            current_user.get("user_id"),
+            extraction_id,
+            __import__("json").dumps({"invoice_number": req.invoice_number, "vendor_name": req.vendor_name}),
+        )
+    except Exception as _ae:
+        log.debug(f"audit_log invoice_save failed: {_ae}")
+
+    return result
+
+
 def _serialize(row) -> dict:
     if not row:
         return {}

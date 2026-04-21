@@ -140,6 +140,23 @@ async def get_tenant_from_api_key(api_key: str) -> Optional[str]:
         return None
 
 
+def require_role(*roles: str):
+    """
+    FastAPI dependency factory — raises 403 if user.role not in roles.
+    Admins always pass (backwards-compatible).
+    Usage: Depends(require_role("admin")) or Depends(require_role("admin", "agent"))
+    """
+    async def _check(current_user: dict = Depends(get_current_user)) -> dict:
+        user_role = current_user.get("role", "")
+        if user_role not in roles and user_role != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail=f"Szükséges jogosultság: {', '.join(roles)}",
+            )
+        return current_user
+    return _check
+
+
 async def generate_api_key(tenant_id: str, label: Optional[str] = None) -> dict:
     """Generates 'docagt_' + 64 hex chars, stores hash, returns full key once."""
     raw_key = "docagt_" + secrets.token_hex(32)

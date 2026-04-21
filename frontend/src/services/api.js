@@ -182,6 +182,14 @@ export const api = {
   },
   seniorApprove: (emailId) =>
     req(`/api/emails/${emailId}/approve`, { method: 'POST' }),
+
+  // ── Tenant API key management ─────────────────────────────
+  listApiKeys: () =>
+    req('/api/keys'),
+  generateApiKey: (label = '') =>
+    req('/api/keys/generate', { method: 'POST', body: JSON.stringify({ label }) }),
+  revokeApiKey: (prefix) =>
+    req(`/api/keys/${prefix}`, { method: 'DELETE' }),
 }
 
 const API_KEY_STORAGE = 'docuagent_api_key'

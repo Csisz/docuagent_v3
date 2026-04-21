@@ -125,14 +125,20 @@ async def retry_run(
 
         from routers.classify import classify_email
         from models.schemas import ClassifyRequest
-        req = ClassifyRequest(
+        from starlette.requests import Request as StarletteRequest
+        clf_req = ClassifyRequest(
             email_id=str(email["id"]),
             subject=email["subject"] or "",
             body=email["body"] or "",
             sender=email.get("sender") or "",
             tenant_id=tenant_id,
         )
-        result = await classify_email(req)
+        # Build a minimal Request so classify_email's @limiter.limit decorator is satisfied
+        fake_scope = {
+            "type": "http", "method": "POST", "path": "/internal/retry",
+            "headers": [], "query_string": b"", "client": ("127.0.0.1", 0),
+        }
+        result = await classify_email(clf_req, request=StarletteRequest(fake_scope))
         return {"status": "retried", "result": result.model_dump(), "method": "sync"}
 
     else:

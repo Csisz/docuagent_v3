@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../hooks';
 
 export default function ReplyEditor({ email, onSent, onClose }) {
-  const { authFetch } = useAuth();
+  const { authFetch, user } = useAuth();
+  const toast = useToast();
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
   const [replyText, setReplyText]       = useState(email.ai_response || '');
@@ -20,9 +22,12 @@ export default function ReplyEditor({ email, onSent, onClose }) {
         body: JSON.stringify({ reply: replyText })
       });
       if (!res.ok) throw new Error(await res.text());
+      toast('Válasz elküldve', 'ok');
       onSent?.();
     } catch (e) {
-      setError(e.message || 'Küldési hiba');
+      const msg = e.message || 'Küldési hiba';
+      setError(msg);
+      toast(msg, 'err');
     } finally {
       setSending(false);
     }
@@ -32,19 +37,25 @@ export default function ReplyEditor({ email, onSent, onClose }) {
     setRegenerating(true);
     setError('');
     try {
-      const res = await authFetch(`${apiUrl}/generate-reply`, {
+      const res = await authFetch(`${apiUrl}/api/generate-reply`, {
         method: 'POST',
         body: JSON.stringify({
-          email_id: email.id,
-          subject:  email.subject,
-          body:     email.body,
-          category: email.category
+          email_id:  email.id,
+          subject:   email.subject,
+          body:      email.body,
+          category:  email.category,
+          tenant_id: user?.tenant_id,
         })
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setReplyText(data.reply || '');
-    } catch {
-      setError('Újragenerálás sikertelen');
+      if (!data.reply) throw new Error('Üres válasz érkezett');
+      setReplyText(data.reply);
+      toast('Válasz újragenerálva', 'ok');
+    } catch (e) {
+      const msg = e.message || 'Újragenerálás sikertelen';
+      setError(msg);
+      toast(msg, 'err');
     } finally {
       setRegenerating(false);
     }

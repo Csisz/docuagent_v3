@@ -32,8 +32,8 @@ const NAV = [
       { to: '/insights',      label: 'AI Insights',      icon: ChartIcon },
       { to: '/reports',       label: 'Riportok',         icon: ReportsIcon },
       { to: '/calendar',      label: 'Naptár',           icon: CalendarIcon },
-      { to: '/agents',        label: 'Agent Builder',    icon: AgentBuilderIcon },
-      { to: '/audit',         label: 'Audit Trail',      icon: AuditIcon },
+      { to: '/agents',        label: 'Agent Builder',    icon: AgentBuilderIcon, minRole: 'agent' },
+      { to: '/audit',         label: 'Audit Trail',      icon: AuditIcon,        minRole: 'admin' },
     ]
   },
   {
@@ -46,11 +46,18 @@ const NAV = [
   {
     section: 'Beállítások',
     items: [
-      { to: '/integrations', label: 'Integrációk',   icon: IntegrationsIcon },
-      { to: '/errors',       label: 'Hibák',          icon: ErrorIcon, badge: 'nb-errors' },
+      { to: '/integrations', label: 'Integrációk',   icon: IntegrationsIcon, minRole: 'admin' },
+      { to: '/errors',       label: 'Hibák',          icon: ErrorIcon, badge: 'nb-errors', minRole: 'agent' },
     ]
   },
 ]
+
+function canAccessRoute(minRole, userRole) {
+  if (!minRole) return true
+  if (userRole === 'admin') return true
+  if (minRole === 'agent') return userRole === 'agent'
+  return false
+}
 
 export default function Sidebar() {
   const { mobileNavOpen, closeMobileNav, theme, toggleTheme, dashData } = useStore()
@@ -127,12 +134,15 @@ export default function Sidebar() {
             <div className="px-3 py-4 text-[12px] text-white/30 leading-relaxed">
               Fejezd be a beállítási varázslót a navigáció eléréséhez.
             </div>
-          ) : NAV.map(({ section, items }) => (
+          ) : NAV.map(({ section, items }) => {
+            const visibleItems = items.filter(item => canAccessRoute(item.minRole, user?.role))
+            if (visibleItems.length === 0) return null
+            return (
             <div key={section}>
               <div className="text-[8.5px] text-white/50 uppercase tracking-[.18em] px-3 py-3 pb-1">
                 {section}
               </div>
-              {items.map(({ to, label, icon: Icon, badge }) => (
+              {visibleItems.map(({ to, label, icon: Icon, badge }) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -155,7 +165,8 @@ export default function Sidebar() {
                 </NavLink>
               ))}
             </div>
-          ))}
+          )
+          })}
         </nav>
 
         {/* API Key */}

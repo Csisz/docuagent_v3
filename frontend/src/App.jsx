@@ -41,11 +41,11 @@ export default function App() {
               <Route path="/calendar"  element={<CalendarPage />} />
               <Route path="/approval"  element={<ApprovalPage />} />
               <Route path="/templates"   element={<TemplatePage />} />
-              <Route path="/agents"      element={<AgentsPage />} />
-              <Route path="/audit"       element={<AuditPage />} />
+              <Route path="/agents"      element={<ProtectedRoute requiredRole="agent"><AgentsPage /></ProtectedRoute>} />
+              <Route path="/audit"       element={<ProtectedRoute requiredRole="admin"><AuditPage /></ProtectedRoute>} />
               <Route path="/crm"             element={<CrmPage />} />
-              <Route path="/integrations"   element={<IntegrationsPage />} />
-              <Route path="/errors"          element={<ErrorCenterPage />} />
+              <Route path="/integrations"   element={<ProtectedRoute requiredRole="admin"><IntegrationsPage /></ProtectedRoute>} />
+              <Route path="/errors"          element={<ProtectedRoute requiredRole="agent"><ErrorCenterPage /></ProtectedRoute>} />
               <Route path="*"            element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

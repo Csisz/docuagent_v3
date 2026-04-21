@@ -222,6 +222,21 @@ async def classify_email(req: ClassifyRequest, request: Request):
         except Exception as e:
             log.debug(f"rag_log classify insert failed: {e}")
 
+    # ── Senior rule check ──────────────────────────────────────
+    if req.email_id:
+        try:
+            from services.senior_rules import check_senior_required
+            sr, sr_reason = check_senior_required(req.subject, req.body or "", policy)
+            if sr:
+                import db.database as _dbx
+                await _dbx.execute(
+                    "UPDATE emails SET senior_required=TRUE WHERE id=$1",
+                    req.email_id,
+                )
+                log.info(f"[senior] email={req.email_id[:8]} senior_required=True reason={sr_reason}")
+        except Exception as _sr_err:
+            log.debug(f"[senior] rule check failed: {_sr_err}")
+
     log.info(
         f"Classify: '{req.subject[:40]}' â†' {compliance.status} "
         f"conf={out.confidence} urgency={out.urgency_score} "

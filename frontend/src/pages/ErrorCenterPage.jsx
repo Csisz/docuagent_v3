@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../services/api'
 
 const TRIGGER_LABELS = {
@@ -98,9 +98,11 @@ function RunRow({ run, onRetry }) {
 }
 
 export default function ErrorCenterPage() {
-  const [runs, setRuns]     = useState([])
-  const [loading, setLoad]  = useState(true)
-  const [error, setError]   = useState('')
+  const [runs, setRuns]         = useState([])
+  const [loading, setLoad]      = useState(true)
+  const [error, setError]       = useState('')
+  const [archived, setArchived] = useState(new Set())
+  const pollRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoad(true)
@@ -115,13 +117,28 @@ export default function ErrorCenterPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    // Auto-refresh every 30s
+    pollRef.current = setInterval(load, 30_000)
+    return () => clearInterval(pollRef.current)
+  }, [load])
 
   async function handleRetry(runId) {
     await api.retryRun(runId)
-    // refresh list after short delay
-    setTimeout(load, 1500)
+    // Refresh after brief delay to pick up status change
+    setTimeout(load, 2000)
   }
+
+  function handleArchive(runId) {
+    setArchived(prev => new Set([...prev, runId]))
+  }
+
+  function handleArchiveAll() {
+    setArchived(new Set(runs.map(r => r.id)))
+  }
+
+  const visibleRuns = runs.filter(r => !archived.has(r.id))
 
   return (
     <div style={{ padding: '32px 28px', maxWidth: 900 }}>
@@ -135,16 +152,42 @@ export default function ErrorCenterPage() {
             Sikertelen agent futások — manuális újraindítás lehetőséggel
           </p>
         </div>
-        <button
-          onClick={load}
-          style={{
-            background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
-            color: '#818cf8', borderRadius: 8, padding: '7px 16px',
-            fontSize: 13, fontWeight: 600, cursor: 'pointer',
-          }}
-        >
-          Frissítés
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {archived.size > 0 && (
+            <button
+              onClick={() => setArchived(new Set())}
+              style={{
+                background: 'rgba(100,116,139,0.15)', border: '1px solid rgba(100,116,139,0.3)',
+                color: '#94a3b8', borderRadius: 8, padding: '7px 14px',
+                fontSize: 13, cursor: 'pointer',
+              }}
+            >
+              Archív mutatása ({archived.size})
+            </button>
+          )}
+          {visibleRuns.length > 0 && (
+            <button
+              onClick={handleArchiveAll}
+              style={{
+                background: 'rgba(100,116,139,0.15)', border: '1px solid rgba(100,116,139,0.3)',
+                color: '#94a3b8', borderRadius: 8, padding: '7px 14px',
+                fontSize: 13, cursor: 'pointer',
+              }}
+            >
+              Összes archiválása
+            </button>
+          )}
+          <button
+            onClick={load}
+            style={{
+              background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
+              color: '#818cf8', borderRadius: 8, padding: '7px 16px',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            Frissítés
+          </button>
+        </div>
       </div>
 
       {loading && (
@@ -162,7 +205,7 @@ export default function ErrorCenterPage() {
         </div>
       )}
 
-      {!loading && !error && runs.length === 0 && (
+      {!loading && !error && visibleRuns.length === 0 && (
         <div style={{
           textAlign: 'center', padding: '64px 0',
           color: '#64748b', fontSize: 14,
@@ -173,13 +216,24 @@ export default function ErrorCenterPage() {
         </div>
       )}
 
-      {!loading && runs.length > 0 && (
+      {!loading && visibleRuns.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
-            {runs.length} hibás futás
+            {visibleRuns.length} hibás futás{archived.size > 0 ? ` · ${archived.size} archivált` : ''}
           </div>
-          {runs.map(run => (
-            <RunRow key={run.id} run={run} onRetry={handleRetry} />
+          {visibleRuns.map(run => (
+            <div key={run.id} style={{ position: 'relative' }}>
+              <RunRow run={run} onRetry={handleRetry} />
+              <button
+                onClick={() => handleArchive(run.id)}
+                title="Archiválás"
+                style={{
+                  position: 'absolute', top: 10, right: 10,
+                  background: 'none', border: 'none', color: 'rgba(100,116,139,.5)',
+                  fontSize: 14, cursor: 'pointer', lineHeight: 1, padding: 4,
+                }}
+              >✕</button>
+            </div>
           ))}
         </div>
       )}

@@ -112,9 +112,9 @@ export default function DashboardPage() {
   const blocks = {
     kpi_cards: (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard label="Kezelt emailek"    value={d?.kpis?.emails?.value}          sub={`${d?.kpis?.feedback_total?.value||0} feedback tárolt`} accent="orange" />
-        <KpiCard label="AI megválaszolta"  value={d?.kpis?.ai_answered?.value}     sub="automatikus" accent="green" />
-        <KpiCard label="Figyelmet igényel" value={d?.kpis?.needs_attention?.value} sub={d?.kpis?.feedback_total?.value>0?`tanul ${d.kpis.feedback_total.value} mintából`:'nincs tanulás'} accent="red" />
+        <KpiCard label="Kezelt emailek"    value={d?.kpis?.emails?.value}          sub={`${d?.kpis?.feedback_total?.value||0} feedback tárolt`} accent="orange" filter="ALL" />
+        <KpiCard label="AI megválaszolta"  value={d?.kpis?.ai_answered?.value}     sub="automatikus" accent="green"  filter="AI_ANSWERED" />
+        <KpiCard label="Figyelmet igényel" value={d?.kpis?.needs_attention?.value} sub={d?.kpis?.feedback_total?.value>0?`tanul ${d.kpis.feedback_total.value} mintából`:'nincs tanulás'} accent="red" filter="NEEDS_ATTENTION" />
         <KpiCard label="Átlag konfidencia" value={d?.kpis?.avg_confidence?.value}  sub="AI döntések" accent="purple" suffix="%" />
       </div>
     ),
@@ -572,10 +572,22 @@ function ROICard({ aiAnswered, needsAttention }) {
   )
 }
 
-function KpiCard({ label, value, sub, accent, suffix='' }) {
+function KpiCard({ label, value, sub, accent, suffix='', filter=null }) {
+  const navigate = useNavigate()
   const ac = { orange:{bar:'bg-gradient-to-b from-[#ff7820] to-[#ff4500]',val:'text-[#ff7820]'}, green:{bar:'bg-green-400',val:'text-green-400'}, red:{bar:'bg-red-400',val:'text-red-400'}, purple:{bar:'bg-purple-400',val:'text-purple-400'} }[accent]||{bar:'bg-blue-400',val:'text-blue-400'}
+  const clickable = !!filter
+  function handleClick() {
+    if (!filter) return
+    navigate('/emails', { state: { filter: filter === 'ALL' ? undefined : filter } })
+  }
   return (
-    <div className="glass-card relative pl-5 overflow-hidden animate-fade-up">
+    <div
+      className={clsx('glass-card relative pl-5 overflow-hidden animate-fade-up transition-transform', clickable && 'cursor-pointer hover:scale-[1.02]')}
+      onClick={clickable ? handleClick : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => e.key === 'Enter' && handleClick() : undefined}
+    >
       <div className={clsx('absolute left-0 top-0 bottom-0 w-[3px] rounded-l-xl',ac.bar)} />
       <div className={clsx('absolute bottom-[-30px] right-[-30px] w-20 h-20 rounded-full blur-2xl opacity-10',ac.bar)} />
       <div className="text-[9.5px] text-zinc-500 uppercase tracking-[.10em] font-mono mb-2">{label}</div>

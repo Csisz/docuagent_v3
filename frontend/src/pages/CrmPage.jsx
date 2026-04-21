@@ -221,7 +221,7 @@ function TaskForm({ contacts = [], cases = [], initial = {}, onSave, onCancel })
 }
 
 // ── Contact side panel ────────────────────────────────────────
-function ContactPanel({ contact, onClose, onEdit }) {
+function ContactPanel({ contact, onClose, onEdit, onDelete }) {
   return (
     <div style={{
       position: 'fixed', top: 0, right: 0, bottom: 0, width: 380, background: '#0f172a',
@@ -264,7 +264,15 @@ function ContactPanel({ contact, onClose, onEdit }) {
         </div>
       )}
 
-      <button onClick={onEdit} style={{ ...btnSecondary, marginBottom: 20, width: '100%' }}>Szerkesztés</button>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <button onClick={onEdit} style={{ ...btnSecondary, flex: 1 }}>Szerkesztés</button>
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            style={{ background: 'rgba(248,113,113,.1)', color: '#f87171', border: '1px solid rgba(248,113,113,.25)', borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}
+          >Törlés</button>
+        )}
+      </div>
 
       {contact.emails?.length > 0 && (
         <>
@@ -475,12 +483,29 @@ export default function CrmPage() {
       if (editContact) {
         await api.crmUpdateContact(editContact.id, form)
         showToast('Kontakt frissítve')
+        // Refresh detail panel if currently open
+        if (selectedContact?.id === editContact.id) {
+          const updated = await api.crmGetContact(editContact.id).catch(() => null)
+          if (updated) setSelectedContact(updated)
+        }
       } else {
         await api.crmCreateContact(form)
         showToast('Kontakt létrehozva')
       }
       setShowContactModal(false)
       setEditContact(null)
+      loadContacts()
+    } catch (e) {
+      showToast(`Hiba: ${e.message}`, false)
+    }
+  }
+
+  async function deleteContact(id) {
+    if (!confirm('Törlöd ezt a kontaktot?')) return
+    try {
+      await api.crmDeleteContact(id)
+      showToast('Kontakt törölve')
+      if (selectedContact?.id === id) setSelectedContact(null)
       loadContacts()
     } catch (e) {
       showToast(`Hiba: ${e.message}`, false)
@@ -781,6 +806,7 @@ export default function CrmPage() {
             setSelectedContact(null)
             setShowContactModal(true)
           }}
+          onDelete={() => deleteContact(selectedContact.id)}
         />
       )}
 

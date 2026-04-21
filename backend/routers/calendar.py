@@ -295,6 +295,27 @@ async def book_from_email(
     }
 
 
+# ── Calendar sync státusz ────────────────────────────────────
+
+@router.get("/sync-status")
+async def calendar_sync_status(current_user: dict = Depends(get_current_user)):
+    """
+    Calendar szinkronizálás állapota.
+    Visszaadja az utolsó szinkron időpontját, esetleges hibát, és a WF4 webhook konfigurációját.
+    """
+    from routers.integrations import _get_cfg  # noqa: PLC0415
+    last_sync  = await _get_cfg("integration.calendar_last_sync", "")
+    last_error = await _get_cfg("integration.calendar_last_error", "")
+    webhook_ok = bool(N8N_CALENDAR_SYNC_WEBHOOK)
+
+    return {
+        "webhook_configured": webhook_ok,
+        "last_sync_at":       last_sync  or None,
+        "last_error":         last_error or None,
+        "status": "error" if last_error else ("ok" if last_sync else "never"),
+    }
+
+
 # ── Manual sync trigger (frontend Szinkronizálás gomb) ───────
 
 @router.post("/trigger-sync")
@@ -375,6 +396,21 @@ async def sync_calendar(req: SyncRequest):
                 "google_event_id": ev.google_event_id,
                 "error": str(e)
             })
+
+    from datetime import datetime, timezone
+    from routers.integrations import _set_cfg, _get_cfg  # noqa: PLC0415
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if errors == 0:
+        await _set_cfg("integration.calendar_last_sync", now_iso)
+        await _set_cfg("integration.calendar_last_error", "")
+    else:
+        # Record partial error but still update last_sync so UI shows activity
+        await _set_cfg("integration.calendar_last_sync", now_iso)
+        await _set_cfg(
+            "integration.calendar_last_error",
+            f"{errors} hiba a legutóbbi szinkronnál ({now_iso[:10]})",
+        )
 
     log.info(
         f"Calendar sync complete: inserted={inserted} updated={updated} "

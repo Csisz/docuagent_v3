@@ -183,6 +183,13 @@ export const api = {
   seniorApprove: (emailId) =>
     req(`/api/emails/${emailId}/approve`, { method: 'POST' }),
 
+  // ── Gmail integration ─────────────────────────────────────
+  gmailTest:   () => req('/api/integrations/gmail/test', { method: 'POST' }),
+  gmailStatus: () => req('/api/integrations/gmail/status'),
+
+  // ── Calendar sync status ──────────────────────────────────
+  calendarSyncStatus: () => req('/api/calendar/sync-status'),
+
   // ── User directory ────────────────────────────────────────
   crmGetUsers: () => req('/api/auth/users'),
 

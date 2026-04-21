@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import APIKeysPanel from '../components/APIKeysPanel'
 
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE     = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// N8N_PUBLIC_URL: frontend-accessible URL for the "n8n megnyitása" button.
+// Override via VITE_N8N_PUBLIC_URL env var; fallback to backend status or localhost.
+const N8N_ENV  = import.meta.env.VITE_N8N_PUBLIC_URL || ''
 
 function showToast(msg, ok = true) {
   const el = document.getElementById('toast-root')
@@ -107,31 +110,106 @@ function CodeBlock({ value }) {
 }
 
 // ── Gmail card ────────────────────────────────────────────────
-function GmailCard({ status, onTest }) {
+function GmailCard({ status, n8nUrl }) {
   const connected = status?.gmail?.connected
-  const [testing, setTesting] = useState(false)
+  const [gmailDetail, setGmailDetail] = useState(null)
+  const [testing, setTesting]         = useState(false)
+  const [testResult, setTestResult]   = useState(null)   // null | 'ok' | 'error' | 'expired' | 'unconfigured'
 
-  async function test() {
+  useEffect(() => {
+    api.gmailStatus()
+      .then(d => setGmailDetail(d))
+      .catch(() => {})
+  }, [])
+
+  async function runTest() {
     setTesting(true)
+    setTestResult(null)
     try {
-      await api.health()
-      showToast('Backend elérhető ✓')
+      const r = await api.gmailTest()
+      setTestResult(r.status)
+      if (r.status === 'ok') {
+        showToast('Gmail kapcsolat rendben ✓')
+        // Refresh detail after successful test
+        api.gmailStatus().then(d => setGmailDetail(d)).catch(() => {})
+      } else if (r.status === 'expired') {
+        showToast('Gmail OAuth token lejárt!', false)
+      } else {
+        showToast(r.message || 'Kapcsolat sikertelen', false)
+      }
     } catch {
-      showToast('Backend nem elérhető', false)
+      setTestResult('error')
+      showToast('Teszt sikertelen', false)
     } finally {
       setTesting(false)
     }
   }
 
+  const tokenExpired    = gmailDetail?.token_expired
+  const daysLeft        = gmailDetail?.days_until_expiry
+  const expiresWarning  = daysLeft != null && daysLeft >= 0 && daysLeft <= 7
+  const email           = gmailDetail?.email || status?.gmail?.email
+  const lastTest        = gmailDetail?.last_test
+
+  // Status badge color
+  const badgeStyle = testResult === 'ok'
+    ? { color: '#4ade80', border: '1px solid rgba(74,222,128,.3)', background: 'rgba(74,222,128,.08)' }
+    : testResult === 'expired'
+    ? { color: '#fbbf24', border: '1px solid rgba(251,191,36,.3)', background: 'rgba(251,191,36,.08)' }
+    : testResult === 'error' || testResult === 'unconfigured'
+    ? { color: '#f87171', border: '1px solid rgba(248,113,113,.3)', background: 'rgba(248,113,113,.08)' }
+    : null
+
   return (
     <div style={cardStyle}>
       <CardHeader icon="📧" title="Gmail" subtitle="Google Workspace / személyes Gmail n8n-en keresztül" />
-      <StatusDot on={connected} />
-      {status?.gmail?.email && (
-        <div style={{ fontSize: 13, color: 'rgba(255,255,255,.5)' }}>
-          Összekötött fiók: <span style={{ color: '#e2e8f0' }}>{status.gmail.email}</span>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <StatusDot on={connected && !tokenExpired} />
+        {tokenExpired && (
+          <span style={{ fontSize: 11, background: 'rgba(248,113,113,.12)', color: '#f87171', border: '1px solid rgba(248,113,113,.3)', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>
+            ⚠ Token lejárt
+          </span>
+        )}
+        {expiresWarning && !tokenExpired && (
+          <span style={{ fontSize: 11, background: 'rgba(251,191,36,.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,.25)', borderRadius: 4, padding: '2px 8px' }}>
+            ⏳ {daysLeft}n múlva lejár
+          </span>
+        )}
+      </div>
+
+      {email && (
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,.5)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', flexShrink: 0 }} />
+          <span>Összekötött fiók: <span style={{ color: '#e2e8f0' }}>{email}</span></span>
         </div>
       )}
+
+      {tokenExpired && (
+        <div style={{
+          background: 'rgba(248,113,113,.08)', border: '1px solid rgba(248,113,113,.2)',
+          borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#fca5a5', lineHeight: 1.5,
+        }}>
+          A Gmail OAuth token lejárt. Nyisd meg az n8n-t és csatlakoztatsd újra a Gmail fiókot
+          a <strong>WF1 — Email Monitor</strong> workflow-ban.
+        </div>
+      )}
+
+      {testResult && badgeStyle && (
+        <div style={{ ...badgeStyle, borderRadius: 6, padding: '6px 12px', fontSize: 12 }}>
+          {testResult === 'ok' && '✓ Gmail kapcsolat rendben'}
+          {testResult === 'expired' && '⚠ OAuth token lejárt — újra kell csatlakoztatni'}
+          {testResult === 'error' && '✕ n8n nem elérhető'}
+          {testResult === 'unconfigured' && '✕ N8N_LABEL_WEBHOOK nincs beállítva'}
+        </div>
+      )}
+
+      {lastTest && (
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,.25)' }}>
+          Utolsó teszt: {new Date(lastTest).toLocaleString('hu-HU')}
+        </div>
+      )}
+
       <Divider />
       <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', lineHeight: 1.6 }}>
         A Gmail integráció az n8n <strong style={{ color: 'rgba(255,255,255,.55)' }}>WF1 — Email Monitor</strong> workflow-n
@@ -139,14 +217,14 @@ function GmailCard({ status, onTest }) {
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <a
-          href={`${status?.n8n?.url || 'http://localhost:5678'}/workflow`}
+          href={`${n8nUrl}/workflow`}
           target="_blank"
           rel="noopener noreferrer"
           style={{ ...btnSecondary, textDecoration: 'none', display: 'inline-block' }}
         >
           n8n megnyitása →
         </a>
-        <button style={btnSecondary} onClick={test} disabled={testing}>
+        <button style={btnSecondary} onClick={runTest} disabled={testing}>
           {testing ? 'Tesztelés...' : 'Kapcsolat tesztelése'}
         </button>
       </div>
@@ -155,7 +233,7 @@ function GmailCard({ status, onTest }) {
 }
 
 // ── Outlook card ──────────────────────────────────────────────
-function OutlookCard({ status, onSave }) {
+function OutlookCard({ status, onSave, n8nUrl }) {
   const connected = status?.outlook?.connected
   const [email, setEmail]       = useState(status?.outlook?.email || '')
   const [webhook, setWebhook]   = useState(status?.outlook?.webhook_url || '')
@@ -263,7 +341,7 @@ function OutlookCard({ status, onSave }) {
           {saving ? 'Mentés...' : 'Beállítások mentése'}
         </button>
         <a
-          href={`${status?.n8n?.url || 'http://localhost:5678'}/workflow`}
+          href={`${n8nUrl}/workflow`}
           target="_blank"
           rel="noopener noreferrer"
           style={{ ...btnSecondary, textDecoration: 'none', display: 'inline-block' }}
@@ -323,9 +401,9 @@ function CalendarCard({ status }) {
 }
 
 // ── n8n card ──────────────────────────────────────────────────
-function N8nCard({ status }) {
+function N8nCard({ status, n8nUrl }) {
   const online = status?.n8n?.online
-  const url    = status?.n8n?.url || 'http://localhost:5678'
+  const url    = n8nUrl
 
   return (
     <div style={cardStyle}>
@@ -549,6 +627,10 @@ export default function IntegrationsPage() {
 
   useEffect(() => { load() }, [])
 
+  // Resolve n8n URL: VITE env var wins (browser-accessible URL),
+  // then backend-reported URL, then localhost fallback.
+  const n8nUrl = N8N_ENV || status?.n8n?.url || 'http://localhost:5678'
+
   return (
     <div style={{ minHeight: '100vh', background: '#050d18', color: '#e2e8f0', padding: '24px 32px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -579,10 +661,10 @@ export default function IntegrationsPage() {
           gap: 20,
           maxWidth: 1100,
         }}>
-          <GmailCard    status={status} />
-          <OutlookCard  status={status} onSave={load} />
+          <GmailCard    status={status} n8nUrl={n8nUrl} />
+          <OutlookCard  status={status} onSave={load} n8nUrl={n8nUrl} />
           <CalendarCard status={status} />
-          <N8nCard      status={status} />
+          <N8nCard      status={status} n8nUrl={n8nUrl} />
           <WidgetCard   status={status} />
         </div>
       )}

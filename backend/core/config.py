@@ -22,6 +22,13 @@ N8N_LABEL_WEBHOOK        = os.getenv("N8N_LABEL_WEBHOOK", "")
 N8N_CALENDAR_WEBHOOK      = os.getenv("N8N_CALENDAR_WEBHOOK",      "http://n8n:5678/webhook/calendar-create")
 N8N_CALENDAR_SYNC_WEBHOOK = os.getenv("N8N_CALENDAR_SYNC_WEBHOOK", "")
 
+# ── Gmail OAuth (opcionális — token lejárat figyeléshez) ──────
+# Ha be van állítva, a /api/integrations/gmail/status token_expired mezőt számítja
+GMAIL_ACCOUNT_EMAIL       = os.getenv("GMAIL_ACCOUNT_EMAIL", "")
+# ISO 8601 dátum — ha ismert, hogy mikor jár le az n8n OAuth token
+# pl. 2025-12-31T23:59:59+00:00
+GMAIL_TOKEN_EXPIRES_AT    = os.getenv("GMAIL_TOKEN_EXPIRES_AT", "")
+
 # ── App ───────────────────────────────────────────────────────
 COMPANY_NAME = os.getenv("COMPANY_NAME", "Agentify Kft.")
 PORT         = int(os.getenv("PORT", "8000"))

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { Skeleton } from '../components/ui'
 import { useStore } from '../store'
+import { api } from '../services/api'
 
 // ── Konstansok ────────────────────────────────────────────────
 const HOURS = Array.from({ length: 12 }, (_, i) => i + 8)  // 08–19
@@ -336,6 +337,7 @@ export default function CalendarPage() {
   const [syncing,    setSyncing]    = useState(false)
   const [selected,   setSelected]   = useState(null)  // EventModal
   const [showNew,    setShowNew]    = useState(false)  // NewEventModal
+  const [syncStatus, setSyncStatus] = useState(null)  // { last_sync_at, status, webhook_configured }
 
   // ── API hívások ───────────────────────────────────────────
   const loadEvents = useCallback(async () => {
@@ -358,6 +360,13 @@ export default function CalendarPage() {
   }, [weekStart, apiUrl, authFetch])
 
   useEffect(() => { loadEvents() }, [loadEvents])
+
+  // Load sync status once on mount
+  useEffect(() => {
+    api.calendarSyncStatus()
+      .then(d => setSyncStatus(d))
+      .catch(() => {})
+  }, [])
 
   async function handleCreateEvent(data) {
     try {
@@ -393,6 +402,7 @@ export default function CalendarPage() {
       // Give n8n a moment to process, then reload
       await new Promise(r => setTimeout(r, 2000))
       await loadEvents()
+      api.calendarSyncStatus().then(d => setSyncStatus(d)).catch(() => {})
     } catch (e) {
       console.error(e)
     } finally {
@@ -479,7 +489,29 @@ export default function CalendarPage() {
         </div>
 
         {/* Jobb oldali gombok */}
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {/* Sync status badge */}
+          {syncStatus && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              fontSize: 11, fontFamily: 'monospace',
+              color: syncStatus.status === 'error'  ? '#f87171'
+                   : syncStatus.status === 'ok'     ? '#4ade80'
+                   : '#64748b',
+            }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: syncStatus.status === 'error'  ? '#f87171'
+                          : syncStatus.status === 'ok'     ? '#22c55e'
+                          : '#475569',
+                boxShadow: syncStatus.status === 'ok' ? '0 0 5px rgba(34,197,94,.5)' : 'none',
+              }} />
+              {syncStatus.last_sync_at
+                ? `szinkron: ${new Date(syncStatus.last_sync_at).toLocaleString('hu-HU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                : syncStatus.webhook_configured ? 'soha' : 'n8n nincs konfigurálva'
+              }
+            </div>
+          )}
           <button
             onClick={handleSync}
             disabled={syncing}

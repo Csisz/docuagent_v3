@@ -1,8 +1,9 @@
 """
-Integrációk: Outlook webhook, integráció státuszok, config.
+Integrációk: Outlook webhook, Gmail health check, integráció státuszok, config.
 """
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -11,7 +12,10 @@ from pydantic import BaseModel
 
 import db.database as _db
 import db.queries as q
-from core.config import N8N_BASE_URL, N8N_LABEL_WEBHOOK, N8N_CALENDAR_SYNC_WEBHOOK, OPENAI_API_KEY
+from core.config import (
+    N8N_BASE_URL, N8N_LABEL_WEBHOOK, N8N_CALENDAR_SYNC_WEBHOOK, OPENAI_API_KEY,
+    GMAIL_ACCOUNT_EMAIL, GMAIL_TOKEN_EXPIRES_AT,
+)
 from core.security import require_api_key, get_current_user
 
 router = APIRouter(prefix="/api/integrations", tags=["Integrations"])
@@ -167,3 +171,96 @@ async def _check_n8n() -> bool:
             return r.status_code < 500
     except Exception:
         return False
+
+
+def _is_token_expired(expires_str: str) -> tuple[bool, Optional[int]]:
+    """Returns (is_expired, days_until_expiry). days_until_expiry is None if no expiry set."""
+    if not expires_str:
+        return False, None
+    try:
+        exp = datetime.fromisoformat(expires_str)
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        delta = (exp - datetime.now(timezone.utc)).days
+        return delta < 0, delta
+    except Exception:
+        return False, None
+
+
+# ── Gmail health check ────────────────────────────────────────
+
+@router.post("/gmail/test")
+async def gmail_test(current_user: dict = Depends(get_current_user)):
+    """
+    Gmail OAuth health check.
+    Ellenőrzi az n8n elérhetőségét, a webhook konfigurációját és a token érvényességét.
+    """
+    webhook_set = bool(N8N_LABEL_WEBHOOK)
+    token_expires = await _get_cfg("integration.gmail_token_expires_at", "")
+    token_expired, days = _is_token_expired(token_expires)
+
+    if not webhook_set:
+        return {
+            "status": "unconfigured",
+            "message": "N8N_LABEL_WEBHOOK nincs beállítva",
+            "n8n_reachable": False,
+            "webhook_configured": False,
+            "token_expired": False,
+            "days_until_expiry": None,
+        }
+
+    n8n_ok = await _check_n8n()
+
+    if not n8n_ok:
+        return {
+            "status": "error",
+            "message": "n8n nem elérhető",
+            "n8n_reachable": False,
+            "webhook_configured": True,
+            "token_expired": token_expired,
+            "days_until_expiry": days,
+        }
+
+    if token_expired:
+        return {
+            "status": "expired",
+            "message": "Gmail OAuth token lejárt — újra kell csatlakoztatni az n8n-ben",
+            "n8n_reachable": True,
+            "webhook_configured": True,
+            "token_expired": True,
+            "days_until_expiry": days,
+        }
+
+    await _set_cfg("integration.gmail_last_test", datetime.now(timezone.utc).isoformat())
+    log.info(f"Gmail test OK by {current_user.get('email')}")
+    return {
+        "status": "ok",
+        "message": "Gmail integráció működik",
+        "n8n_reachable": True,
+        "webhook_configured": True,
+        "token_expired": False,
+        "days_until_expiry": days,
+    }
+
+
+@router.get("/gmail/status")
+async def gmail_status(current_user: dict = Depends(get_current_user)):
+    """Gmail integráció részletes állapota: fiók metaadatok, token lejárat, utolsó teszt."""
+    webhook_set   = bool(N8N_LABEL_WEBHOOK)
+    # Env vars have priority; config table stores user-set overrides
+    gmail_email   = (await _get_cfg("integration.gmail_email", "")) or GMAIL_ACCOUNT_EMAIL
+    connected_at  = await _get_cfg("integration.gmail_connected_at", "")
+    token_expires = (await _get_cfg("integration.gmail_token_expires_at", "")) or GMAIL_TOKEN_EXPIRES_AT
+    last_test     = await _get_cfg("integration.gmail_last_test", "")
+    token_expired, days = _is_token_expired(token_expires)
+
+    return {
+        "connected":          webhook_set and bool(gmail_email),
+        "webhook_configured": webhook_set,
+        "email":              gmail_email or None,
+        "connected_at":       connected_at or None,
+        "token_expires_at":   token_expires or None,
+        "days_until_expiry":  days,
+        "token_expired":      token_expired,
+        "last_test":          last_test or None,
+    }

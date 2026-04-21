@@ -18,9 +18,11 @@ export default function InsightsPage() {
   const [ai,    setAi]    = useState(null)
   const [perf,  setPerf]  = useState(null)
   const [gw,    setGw]    = useState(null)
+  const [rag,   setRag]   = useState(null)
   const [loading,      setLoading]      = useState(false)
   const [perfLoading,  setPerfLoading]  = useState(false)
   const [gwLoading,    setGwLoading]    = useState(false)
+  const [ragLoading,   setRagLoading]   = useState(false)
   const [days,  setDays]  = useState(7)
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export default function InsightsPage() {
   useEffect(() => {
     loadPerf()
     loadGateway()
+    loadRag()
   }, [days]) // eslint-disable-line
 
   async function loadAI() {
@@ -66,6 +69,18 @@ export default function InsightsPage() {
       setGw(null)
     } finally {
       setGwLoading(false)
+    }
+  }
+
+  async function loadRag() {
+    setRagLoading(true)
+    try {
+      const d = await api.ragStats(days)
+      setRag(d)
+    } catch {
+      setRag(null)
+    } finally {
+      setRagLoading(false)
     }
   }
 
@@ -233,8 +248,146 @@ export default function InsightsPage() {
           </div>
         </div>
       </div>
+      {/* ── RAG Tudásbázis szekció ───────────────────────────── */}
+      <div className="glass-card">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h3 className="text-[13px] font-semibold text-white">RAG Tudásbázis</h3>
+            <p className="text-[11px] text-zinc-500 mt-0.5">Dokumentum lekérdezések és fallback arány</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <DaysSelector value={days} onChange={d => setDays(d)} />
+            <button className="btn-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5" onClick={loadRag}>
+              <span className={ragLoading ? 'animate-spin-slow inline-block' : ''}>↻</span>
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+          <PerfCard
+            icon="🔍"
+            label="Összes lekérdezés"
+            value={ragLoading ? null : (rag?.summary?.total_queries ?? 0)}
+            sub={`utolsó ${days} nap`}
+            color="#60a5fa"
+          />
+          <PerfCard
+            icon="⚠️"
+            label="Fallback válaszok"
+            value={ragLoading ? null : (rag?.summary?.fallback_count ?? 0)}
+            sub="nincs találat → sablon"
+            color="#fbbf24"
+          />
+          <PerfCard
+            icon="✅"
+            label="Fallback arány"
+            value={ragLoading ? null : (rag?.summary?.total_queries > 0 ? `${rag.summary.fallback_rate_pct}%` : '—')}
+            sub={null}
+            color={rag?.summary?.fallback_rate_pct > 30 ? '#f87171' : '#4ade80'}
+            extra={rag && !ragLoading && rag.summary.total_queries > 0
+              ? <RAGFallbackBar rate={rag.summary.fallback_rate_pct} />
+              : null
+            }
+          />
+        </div>
+        <div className={clsx('rounded-lg p-4', isLight ? 'bg-slate-50 border border-slate-200' : 'bg-white/[.02] border border-white/7')}>
+          <div className="text-[10px] font-bold uppercase tracking-[.12em] text-zinc-500 mb-3">
+            Napi lekérdezések
+          </div>
+          {ragLoading
+            ? <Skeleton className="h-36 w-full" />
+            : <RAGDailyChart data={rag?.daily || []} isLight={isLight} />
+          }
+        </div>
+      </div>
     </div>
   )
+}
+
+// ── RAG komponensek ───────────────────────────────────────────
+
+function RAGFallbackBar({ rate }) {
+  const pct = Math.min(100, Math.max(0, rate || 0))
+  const color = pct > 30 ? '#f87171' : pct > 15 ? '#fbbf24' : '#4ade80'
+  return (
+    <div>
+      <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <div className="text-[10px] text-zinc-600 mt-1 font-mono">
+        {pct > 30 ? 'Magas fallback — több doc kell' : pct > 15 ? 'Közepes' : 'Jó lefedettség'}
+      </div>
+    </div>
+  )
+}
+
+function RAGDailyChart({ data, isLight }) {
+  const canvasRef = useRef(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !data.length) return
+    const ctx = canvas.getContext('2d')
+    const dpr = window.devicePixelRatio || 1
+    const W = canvas.clientWidth
+    const H = canvas.clientHeight
+    canvas.width  = W * dpr
+    canvas.height = H * dpr
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, W, H)
+
+    const pad   = { top: 8, right: 8, bottom: 28, left: 28 }
+    const chartW = W - pad.left - pad.right
+    const chartH = H - pad.top - pad.bottom
+    const maxVal = Math.max(...data.map(d => d.total || 0), 1)
+    const barGroup = chartW / data.length
+    const barW = Math.max(4, barGroup * 0.5)
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'
+    ctx.lineWidth = 1
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + chartH - (i / 4) * chartH
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + chartW, y); ctx.stroke()
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'
+      ctx.font = '8px monospace'; ctx.textAlign = 'right'
+      ctx.fillText(Math.round(maxVal * i / 4), pad.left - 4, y + 3)
+    }
+
+    data.forEach((d, i) => {
+      const x     = pad.left + i * barGroup + (barGroup - barW) / 2
+      const totalH    = chartH * ((d.total    || 0) / maxVal)
+      const fallbackH = chartH * ((d.fallbacks || 0) / maxVal)
+
+      ctx.fillStyle = '#60a5fa'
+      ctx.beginPath()
+      ctx.roundRect?.(x, pad.top + chartH - totalH, barW, totalH, [2, 2, 0, 0]) ||
+        ctx.rect(x, pad.top + chartH - totalH, barW, totalH)
+      ctx.fill()
+
+      if (fallbackH > 0) {
+        ctx.fillStyle = '#fbbf24'
+        ctx.beginPath()
+        ctx.roundRect?.(x, pad.top + chartH - fallbackH, barW, fallbackH, [2, 2, 0, 0]) ||
+          ctx.rect(x, pad.top + chartH - fallbackH, barW, fallbackH)
+        ctx.fill()
+      }
+
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'
+      ctx.font = '8px monospace'; ctx.textAlign = 'center'
+      ctx.fillText(d.day ? d.day.slice(5) : '', x + barW / 2, pad.top + chartH + 14)
+    })
+
+    const legY = H - 6
+    ;[['#60a5fa', 'Összes'], ['#fbbf24', 'Fallback']].forEach(([col, lbl], i) => {
+      const ox = pad.left + i * 100
+      ctx.fillStyle = col; ctx.fillRect(ox, legY - 5, 8, 5)
+      ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '8px monospace'; ctx.textAlign = 'left'
+      ctx.fillText(lbl, ox + 10, legY)
+    })
+  }, [data, isLight])
+
+  if (!data.length) {
+    return <div className="flex items-center justify-center h-36 text-[12px] text-zinc-600">Nincs adat a kiválasztott periódusra.</div>
+  }
+  return <canvas ref={canvasRef} style={{ width: '100%', height: 150, display: 'block' }} />
 }
 
 // ── KPI mini (meglévő) ────────────────────────────────────────

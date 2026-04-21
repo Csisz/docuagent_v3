@@ -6,11 +6,21 @@ import { useAuth } from '../../context/AuthContext'
 import { LiveDot } from '../ui'
 
 const TITLES = {
-  '/':          { cat: 'DocuAgent', title: 'Dashboard' },
-  '/emails':    { cat: 'DocuAgent', title: 'Email kezelés' },
-  '/attention': { cat: 'DocuAgent', title: 'Figyelmet igényel' },
-  '/docs':      { cat: 'DocuAgent', title: 'Dokumentumok' },
-  '/insights':  { cat: 'DocuAgent', title: 'AI Insights' },
+  '/':             { cat: 'DocuAgent', title: 'Dashboard' },
+  '/emails':       { cat: 'DocuAgent', title: 'Email kezelés' },
+  '/attention':    { cat: 'DocuAgent', title: 'Figyelmet igényel' },
+  '/docs':         { cat: 'DocuAgent', title: 'Dokumentumok' },
+  '/insights':     { cat: 'DocuAgent', title: 'AI Insights' },
+  '/reports':      { cat: 'DocuAgent', title: 'Riportok' },
+  '/chat':         { cat: 'DocuAgent', title: 'Chat asszisztens' },
+  '/calendar':     { cat: 'DocuAgent', title: 'Naptár' },
+  '/approval':     { cat: 'DocuAgent', title: 'Senior jóváhagyás' },
+  '/templates':    { cat: 'DocuAgent', title: 'Sablonok' },
+  '/agents':       { cat: 'Rendszer',  title: 'Agent kezelő' },
+  '/audit':        { cat: 'Rendszer',  title: 'Audit napló' },
+  '/crm':          { cat: 'DocuAgent', title: 'CRM' },
+  '/integrations': { cat: 'Rendszer',  title: 'Integrációk' },
+  '/errors':       { cat: 'Rendszer',  title: 'Hibák & Újrapróbálás' },
 }
 
 export default function Topbar({ onUpload, isDemo }) {

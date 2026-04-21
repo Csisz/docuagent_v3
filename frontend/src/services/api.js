@@ -183,6 +183,12 @@ export const api = {
   seniorApprove: (emailId) =>
     req(`/api/emails/${emailId}/approve`, { method: 'POST' }),
 
+  // ── User directory ────────────────────────────────────────
+  crmGetUsers: () => req('/api/auth/users'),
+
+  // ── RAG statistics ─────────────────────────────────────────
+  ragStats: (days = 7) => req(`/api/rag-stats?days=${days}`),
+
   // ── Tenant API key management ─────────────────────────────
   listApiKeys: () =>
     req('/api/keys'),

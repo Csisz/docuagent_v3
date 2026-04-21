@@ -38,7 +38,7 @@ from core.security import get_current_user
 router = APIRouter(prefix="/api", tags=["Documents"])
 log    = logging.getLogger("docuagent")
 
-_MAX_FILE_BYTES = int(os.getenv("MAX_UPLOAD_MB", "20")) * 1024 * 1024
+_MAX_FILE_BYTES = int(os.getenv("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 _ALLOWED_MIME_TYPES = {
     "application/pdf",
     "application/msword",

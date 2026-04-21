@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../services/api'
 
 const PRIORITY_COLORS = {
@@ -118,9 +118,9 @@ function ContactForm({ initial = {}, onSave, onCancel }) {
 }
 
 // ── Case Form ─────────────────────────────────────────────────
-function CaseForm({ contacts = [], initial = {}, onSave, onCancel }) {
+function CaseForm({ contacts = [], users = [], initial = {}, onSave, onCancel }) {
   const [form, setForm] = useState({
-    title: '', contact_id: '', status: 'open', priority: 'normal', category: '', notes: '', ...initial,
+    title: '', contact_id: '', status: 'open', priority: 'normal', category: '', notes: '', assigned_to: '', ...initial,
   })
   const [saving, setSaving] = useState(false)
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
@@ -159,6 +159,12 @@ function CaseForm({ contacts = [], initial = {}, onSave, onCancel }) {
         </Field>
       </div>
       <Field label="Kategória"><input style={inputStyle} value={form.category} onChange={set('category')} placeholder="pl. Számlázás, Technikai..." /></Field>
+      <Field label="Felelős">
+        {users.length > 0
+          ? <SearchableSelect value={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))} options={users} placeholder="Válassz felelőst..." />
+          : <input style={inputStyle} value={form.assigned_to} onChange={set('assigned_to')} placeholder="pl. admin@..." />
+        }
+      </Field>
       <Field label="Megjegyzés"><textarea style={{ ...inputStyle, minHeight: 72, resize: 'vertical' }} value={form.notes} onChange={set('notes')} /></Field>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
         <button style={btnSecondary} onClick={onCancel}>Mégse</button>
@@ -169,7 +175,7 @@ function CaseForm({ contacts = [], initial = {}, onSave, onCancel }) {
 }
 
 // ── Task Form ─────────────────────────────────────────────────
-function TaskForm({ contacts = [], cases = [], initial = {}, onSave, onCancel }) {
+function TaskForm({ contacts = [], cases = [], users = [], initial = {}, onSave, onCancel }) {
   const [form, setForm] = useState({
     title: '', case_id: '', contact_id: '', due_date: '', assigned_to: '', ...initial,
   })
@@ -210,13 +216,171 @@ function TaskForm({ contacts = [], cases = [], initial = {}, onSave, onCancel })
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <Field label="Határidő"><input type="datetime-local" style={inputStyle} value={form.due_date} onChange={set('due_date')} /></Field>
-        <Field label="Felelős"><input style={inputStyle} value={form.assigned_to} onChange={set('assigned_to')} placeholder="pl. admin@..." /></Field>
+        <Field label="Felelős">
+          {users.length > 0
+            ? <SearchableSelect value={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))} options={users} placeholder="Válassz felelőst..." />
+            : <input style={inputStyle} value={form.assigned_to} onChange={set('assigned_to')} placeholder="pl. admin@..." />
+          }
+        </Field>
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
         <button style={btnSecondary} onClick={onCancel}>Mégse</button>
         <button style={btnPrimary} onClick={submit} disabled={saving}>{saving ? 'Mentés...' : 'Mentés'}</button>
       </div>
     </div>
+  )
+}
+
+// ── Searchable user select ────────────────────────────────────
+function SearchableSelect({ value, onChange, options, placeholder = 'Válassz...' }) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+  const selected = options.find(o => o.value === value)
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div
+        style={{ ...inputStyle, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span style={{ color: selected ? '#e2e8f0' : 'rgba(255,255,255,.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <span style={{ color: 'rgba(255,255,255,.3)', fontSize: 10, flexShrink: 0, marginLeft: 6 }}>▼</span>
+      </div>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+          background: '#0f172a', border: '1px solid rgba(255,255,255,.15)',
+          borderRadius: 8, marginTop: 4, maxHeight: 220, overflowY: 'auto',
+          boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+        }}>
+          <div style={{ padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+            <input
+              style={{ ...inputStyle, padding: '4px 8px', fontSize: 12 }}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Keresés..."
+              onClick={e => e.stopPropagation()}
+              autoFocus
+            />
+          </div>
+          {value && (
+            <div
+              style={{ padding: '8px 12px', fontSize: 12, color: 'rgba(255,255,255,.4)', cursor: 'pointer' }}
+              onClick={() => { onChange(''); setOpen(false); setQuery('') }}
+            >
+              — nincs —
+            </div>
+          )}
+          {filtered.length === 0 && (
+            <div style={{ padding: '12px', fontSize: 12, color: 'rgba(255,255,255,.3)', textAlign: 'center' }}>Nincs találat</div>
+          )}
+          {filtered.map(o => (
+            <div
+              key={o.value}
+              style={{
+                padding: '8px 12px', fontSize: 12, cursor: 'pointer',
+                color: o.value === value ? '#60a5fa' : '#e2e8f0',
+                background: o.value === value ? 'rgba(26,86,219,.15)' : 'none',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.05)'}
+              onMouseLeave={e => e.currentTarget.style.background = o.value === value ? 'rgba(26,86,219,.15)' : 'none'}
+              onClick={() => { onChange(o.value); setOpen(false); setQuery('') }}
+            >
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Email attach modal ────────────────────────────────────────
+function EmailAttachModal({ caseId, onClose, onLinked }) {
+  const [emails, setEmails] = useState([])
+  const [loadingEmails, setLoadingEmails] = useState(true)
+  const [query, setQuery] = useState('')
+  const [linking, setLinking] = useState(null)
+
+  useEffect(() => {
+    api.emails(undefined, 100)
+      .then(d => setEmails(d.emails || []))
+      .catch(() => {})
+      .finally(() => setLoadingEmails(false))
+  }, [])
+
+  const filtered = emails.filter(e =>
+    (e.subject || '').toLowerCase().includes(query.toLowerCase()) ||
+    (e.sender || '').toLowerCase().includes(query.toLowerCase())
+  )
+
+  async function link(emailId) {
+    setLinking(emailId)
+    try {
+      await api.crmLinkEmail(caseId, emailId)
+      onLinked()
+      onClose()
+    } catch (e) {
+      showToast(`Hiba: ${e.message}`, false)
+      setLinking(null)
+    }
+  }
+
+  return (
+    <Modal title="Email csatolása az ügyhez" onClose={onClose}>
+      <input
+        style={{ ...inputStyle, marginBottom: 12 }}
+        placeholder="Szűrés tárgy vagy feladó alapján..."
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+      />
+      {loadingEmails ? (
+        <div style={{ color: 'rgba(255,255,255,.4)', textAlign: 'center', padding: 24 }}>Betöltés...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ color: 'rgba(255,255,255,.3)', textAlign: 'center', padding: 24 }}>Nincs email.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+          {filtered.map(e => (
+            <div
+              key={e.id}
+              style={{
+                background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.07)',
+                borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.subject || '(nincs tárgy)'}
+                </div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', marginTop: 2 }}>
+                  {e.sender} · {formatDate(e.created_at)}
+                </div>
+              </div>
+              <button
+                onClick={() => link(e.id)}
+                disabled={!!linking}
+                style={{ ...btnPrimary, fontSize: 11, padding: '5px 12px', flexShrink: 0 }}
+              >
+                {linking === e.id ? '...' : 'Csatolás'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -299,7 +463,7 @@ function ContactPanel({ contact, onClose, onEdit, onDelete }) {
 }
 
 // ── Case side panel ───────────────────────────────────────────
-function CasePanel({ caseItem, onClose, onEdit }) {
+function CasePanel({ caseItem, onClose, onEdit, onAttachEmail }) {
   const [linkedEmails, setLinkedEmails] = useState([])
   useEffect(() => {
     if (!caseItem?.id) return
@@ -352,7 +516,17 @@ function CasePanel({ caseItem, onClose, onEdit }) {
         Létrehozva: {formatDate(caseItem.created_at)}
       </div>
 
-      <button onClick={onEdit} style={{ ...btnSecondary, marginBottom: 20, width: '100%' }}>Szerkesztés</button>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <button onClick={onEdit} style={{ ...btnSecondary, flex: 1 }}>Szerkesztés</button>
+        {onAttachEmail && (
+          <button
+            onClick={onAttachEmail}
+            style={{ ...btnSecondary, fontSize: 12, whiteSpace: 'nowrap' }}
+          >
+            + Email
+          </button>
+        )}
+      </div>
 
       {linkedEmails.length > 0 && (
         <>
@@ -405,6 +579,10 @@ export default function CrmPage() {
   const [loading, setLoading]   = useState(false)
   const [importing, setImporting] = useState(false)
 
+  // Users + email attach
+  const [users, setUsers] = useState([])
+  const [showEmailAttach, setShowEmailAttach] = useState(false)
+
   // ── Load data ───────────────────────────────────────────────
 
   const loadContacts = useCallback(async (search = contactSearch) => {
@@ -438,6 +616,12 @@ export default function CrmPage() {
     if (tab === 'contacts') loadContacts()
     else if (tab === 'cases') { loadCases(); loadContacts('') }
     else if (tab === 'tasks') { loadTasks(); loadContacts(''); loadCases() }
+    // Load users for assignment dropdowns (cases + tasks tabs)
+    if (tab === 'cases' || tab === 'tasks') {
+      api.crmGetUsers()
+        .then(d => setUsers((d.users || []).map(u => ({ value: u.email, label: u.full_name ? `${u.full_name} (${u.email})` : u.email }))))
+        .catch(() => {})
+    }
   }, [tab, caseStatusFilter, showCompleted])
 
   useEffect(() => {
@@ -820,6 +1004,7 @@ export default function CrmPage() {
             setSelectedCase(null)
             setShowCaseModal(true)
           }}
+          onAttachEmail={() => setShowEmailAttach(true)}
         />
       )}
 
@@ -839,6 +1024,7 @@ export default function CrmPage() {
         <Modal title={editCase ? 'Ügy szerkesztése' : 'Új ügy'} onClose={() => { setShowCaseModal(false); setEditCase(null) }}>
           <CaseForm
             contacts={contacts}
+            users={users}
             initial={editCase || {}}
             onSave={saveCase}
             onCancel={() => { setShowCaseModal(false); setEditCase(null) }}
@@ -852,10 +1038,26 @@ export default function CrmPage() {
           <TaskForm
             contacts={contacts}
             cases={cases}
+            users={users}
             onSave={saveTask}
             onCancel={() => setShowTaskModal(false)}
           />
         </Modal>
+      )}
+
+      {/* Email attach modal */}
+      {showEmailAttach && selectedCase && (
+        <EmailAttachModal
+          caseId={selectedCase.id}
+          onClose={() => setShowEmailAttach(false)}
+          onLinked={() => {
+            showToast('Email csatolva')
+            // Reload case to show updated linked emails
+            api.crmGetCase(selectedCase.id)
+              .then(updated => setSelectedCase(updated))
+              .catch(() => {})
+          }}
+        />
       )}
     </div>
   )

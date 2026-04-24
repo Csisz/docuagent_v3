@@ -21,6 +21,7 @@ const TITLES = {
   '/crm':          { cat: 'DocuAgent', title: 'CRM' },
   '/integrations': { cat: 'Rendszer',  title: 'Integrációk' },
   '/errors':       { cat: 'Rendszer',  title: 'Hibák & Újrapróbálás' },
+  '/ocr':          { cat: 'Rendszer',  title: 'OCR Center' },
 }
 
 export default function Topbar({ onUpload, isDemo }) {

@@ -48,6 +48,7 @@ const NAV = [
     items: [
       { to: '/integrations', label: 'Integrációk',   icon: IntegrationsIcon, minRole: 'admin' },
       { to: '/errors',       label: 'Hibák',          icon: ErrorIcon, badge: 'nb-errors', minRole: 'agent' },
+      { to: '/ocr',          label: 'OCR Center',     icon: OCRIcon,                        minRole: 'agent' },
     ]
   },
 ]
@@ -330,4 +331,7 @@ function IntegrationsIcon({ className }) {
 }
 function ErrorIcon({ className }) {
   return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="7" cy="7" r="6"/><path d="M7 4v3.5M7 10h.01"/></svg>
+}
+function OCRIcon({ className }) {
+  return <svg className={className} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1" y="2" width="12" height="10" rx="1"/><path d="M4 5h6M4 7h4M4 9h5"/><path d="M10 1v2M10 11v2M4 1v2M4 11v2"/></svg>
 }

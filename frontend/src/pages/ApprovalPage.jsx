@@ -392,6 +392,8 @@ export default function ApprovalPage() {
   const [replyTxt, setReplyTxt] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [acting,   setActing]   = useState(false)  // action in flight
+  const [ocrJob,   setOcrJob]   = useState(null)   // OCR job for selected email
+  const [ocrLoading, setOcrLoading] = useState(false)
 
   const isAdmin = user?.role === 'admin'
 
@@ -450,6 +452,31 @@ export default function ApprovalPage() {
   function selectEmail(email) {
     setSelected(email)
     setActing(false)
+    setOcrJob(null)
+  }
+
+  async function triggerOCR() {
+    if (!selected) return
+    setOcrLoading(true)
+    try {
+      const r = await api.triggerEmailOCR(selected.id)
+      setOcrJob(r)
+      if (r.status === 'done' || r.reused) {
+        const job = await api.getOCRJob(r.job_id)
+        setOcrJob(job)
+      } else {
+        // Poll until done
+        const poll = setInterval(async () => {
+          const job = await api.getOCRJob(r.job_id)
+          setOcrJob(job)
+          if (job.status === 'done' || job.status === 'failed') clearInterval(poll)
+        }, 2500)
+      }
+    } catch (e) {
+      toast('OCR indítása sikertelen', 'err')
+    } finally {
+      setOcrLoading(false)
+    }
   }
 
   function removeFromList(id) {
@@ -696,6 +723,45 @@ export default function ApprovalPage() {
 
               {/* Entitás panel */}
               <EntityPanel email={selected} />
+
+              {/* OCR panel */}
+              <div style={{ border: `1px solid ${border}`, borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: subtle, borderBottom: ocrJob ? `1px solid ${border}` : 'none' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    Számla OCR
+                    {ocrJob && <span style={{ marginLeft: 8, fontWeight: 400, textTransform: 'none', fontSize: 10, color: ocrJob.status === 'done' ? '#10b981' : ocrJob.status === 'failed' ? '#ef4444' : '#f59e0b' }}>
+                      {ocrJob.status === 'done' ? `${Math.round((ocrJob.confidence || 0) * 100)}% bizalom` : ocrJob.status === 'failed' ? 'Hiba' : 'Folyamatban…'}
+                    </span>}
+                  </span>
+                  <button
+                    onClick={triggerOCR}
+                    disabled={ocrLoading || ocrJob?.status === 'running' || ocrJob?.status === 'pending'}
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, background: '#059669', color: '#fff', border: 'none', cursor: ocrLoading ? 'not-allowed' : 'pointer', opacity: ocrLoading ? 0.6 : 1 }}
+                  >
+                    {ocrLoading ? '…' : ocrJob ? 'Újrafuttatás' : 'OCR indítása'}
+                  </button>
+                </div>
+                {ocrJob?.extracted_json && (
+                  <div style={{ padding: '0.75rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    {[
+                      ['Számlaszám', ocrJob.extracted_json.invoice_number],
+                      ['Kibocsátó', ocrJob.extracted_json.vendor_name],
+                      ['Bruttó', ocrJob.extracted_json.gross_amount != null ? `${ocrJob.extracted_json.gross_amount.toLocaleString('hu-HU')} ${ocrJob.extracted_json.currency || 'HUF'}` : null],
+                      ['ÁFA', ocrJob.extracted_json.tax_rate != null ? `${ocrJob.extracted_json.tax_rate}%` : null],
+                      ['Esedékes', ocrJob.extracted_json.due_date],
+                      ['Fizetési mód', ocrJob.extracted_json.payment_method],
+                    ].filter(([, v]) => v != null).map(([label, value]) => (
+                      <div key={label} style={{ background: subtle, borderRadius: 5, padding: '5px 8px', border: `1px solid ${border}` }}>
+                        <div style={{ fontSize: 9, color: muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+                        <div style={{ fontSize: 12, color: text, fontWeight: 500, marginTop: 1 }}>{String(value)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {ocrJob?.error_message && (
+                  <div style={{ padding: '0.5rem 0.75rem', fontSize: 12, color: '#f87171' }}>{ocrJob.error_message}</div>
+                )}
+              </div>
 
               {/* AI válasz javaslat */}
               <div>

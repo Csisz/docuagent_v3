@@ -18,6 +18,7 @@ import AuditPage        from './pages/AuditPage'
 import CrmPage            from './pages/CrmPage'
 import IntegrationsPage   from './pages/IntegrationsPage'
 import ErrorCenterPage    from './pages/ErrorCenterPage'
+import OCRCenterPage      from './pages/OCRCenterPage'
 
 export default function App() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="/crm"             element={<CrmPage />} />
               <Route path="/integrations"   element={<ProtectedRoute requiredRole="admin"><IntegrationsPage /></ProtectedRoute>} />
               <Route path="/errors"          element={<ProtectedRoute requiredRole="agent"><ErrorCenterPage /></ProtectedRoute>} />
+              <Route path="/ocr"             element={<ProtectedRoute requiredRole="agent"><OCRCenterPage /></ProtectedRoute>} />
               <Route path="*"            element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

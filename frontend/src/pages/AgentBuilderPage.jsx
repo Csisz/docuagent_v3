@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { api } from '../services/api'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -572,6 +573,15 @@ export default function AgentBuilderPage() {
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
 
+  // New fields for edit mode
+  const [systemPrompt,   setSystemPrompt]   = useState('')
+  const [model,          setModel]          = useState('gpt-4o-mini')
+  const [n8nWebhook,     setN8nWebhook]     = useState('')
+  const [activating,     setActivating]     = useState(false)
+  const [activateResult, setActivateResult] = useState(null)
+  const [runs,           setRuns]           = useState([])
+  const [runsLoading,    setRunsLoading]    = useState(false)
+
   // Szerkesztés: meglévő agent betöltése
   useEffect(() => {
     if (!isEdit) return
@@ -590,6 +600,9 @@ export default function AgentBuilderPage() {
           name:                 data.name || '',
           reply_style:          data.style?.reply_style || 'formal',
         })
+        setSystemPrompt(data.system_prompt || '')
+        setModel(data.model || 'gpt-4o-mini')
+        setN8nWebhook(data.n8n_webhook_url || '')
       })
       .catch(() => setError('Nem sikerült betölteni az agent adatait.'))
   }, [id]) // eslint-disable-line
@@ -619,7 +632,11 @@ export default function AgentBuilderPage() {
           reply_style:          state.reply_style,
           confidence_threshold: state.confidence_threshold,
         },
-        is_active: true,
+        is_active:            true,
+        system_prompt:        systemPrompt.trim() || null,
+        model:                model || 'gpt-4o-mini',
+        n8n_webhook_url:      n8nWebhook.trim() || null,
+        confidence_threshold: state.confidence_threshold / 100,
       }
 
       const url    = isEdit ? `${API}/api/agents/${id}` : `${API}/api/agents`
@@ -635,6 +652,33 @@ export default function AgentBuilderPage() {
       setError('Mentés sikertelen. Próbáld újra.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const loadRuns = useCallback(async () => {
+    if (!isEdit) return
+    setRunsLoading(true)
+    try {
+      const d = await api.getAgentRuns(id, 30)
+      setRuns(d.runs || [])
+    } catch { /* ignore */ } finally {
+      setRunsLoading(false)
+    }
+  }, [id, isEdit])
+
+  useEffect(() => { loadRuns() }, [loadRuns])
+
+  async function handleActivate() {
+    setActivating(true)
+    setActivateResult(null)
+    try {
+      const r = await api.activateAgent(id)
+      setActivateResult({ ok: true, n8n: r.n8n_ping?.status })
+      loadRuns()
+    } catch (e) {
+      setActivateResult({ ok: false, msg: String(e) })
+    } finally {
+      setActivating(false)
     }
   }
 
@@ -695,6 +739,108 @@ export default function AgentBuilderPage() {
             canNext={canGoNext()}
           />
         </div>
+
+        {/* ── AI Runtime settings (edit mode only) ── */}
+        {isEdit && (
+          <div style={{ background: CARD, borderRadius: 16, border: `1px solid ${BORDER}`, padding: '1.5rem', marginTop: '1.5rem' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 16 }}>
+              AI Runtime beállítások
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, color: MUTED, display: 'block', marginBottom: 4 }}>Modell</label>
+                <select
+                  value={model}
+                  onChange={e => setModel(e.target.value)}
+                  style={{ width: '100%', background: '#111827', color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+                >
+                  <option value="gpt-4o-mini">gpt-4o-mini (gyors)</option>
+                  <option value="gpt-4o">gpt-4o (pontos)</option>
+                  <option value="gpt-4-turbo">gpt-4-turbo</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: MUTED, display: 'block', marginBottom: 4 }}>n8n Webhook URL</label>
+                <input
+                  value={n8nWebhook}
+                  onChange={e => setN8nWebhook(e.target.value)}
+                  placeholder="https://n8n.../webhook/..."
+                  style={{ width: '100%', boxSizing: 'border-box', background: '#111827', color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 10px', fontSize: 13 }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, color: MUTED, display: 'block', marginBottom: 4 }}>Rendszer prompt</label>
+              <textarea
+                value={systemPrompt}
+                onChange={e => setSystemPrompt(e.target.value)}
+                placeholder="Az agent viselkedését meghatározó rendszer prompt..."
+                rows={4}
+                style={{ width: '100%', boxSizing: 'border-box', background: '#111827', color: TEXT, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ── Activate button (edit mode only) ── */}
+        {isEdit && (
+          <div style={{ background: CARD, borderRadius: 16, border: `1px solid ${BORDER}`, padding: '1.5rem', marginTop: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: TEXT }}>Agent aktiválása</div>
+                <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>is_active=true, n8n webhook ping, run_count++</div>
+              </div>
+              <button
+                onClick={handleActivate}
+                disabled={activating}
+                style={{ background: activating ? '#374151' : '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: activating ? 'not-allowed' : 'pointer' }}
+              >
+                {activating ? 'Aktiválás…' : 'Aktiválás'}
+              </button>
+            </div>
+            {activateResult && (
+              <div style={{ marginTop: 10, fontSize: 12, color: activateResult.ok ? '#10b981' : '#f87171', padding: '6px 10px', background: activateResult.ok ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)', borderRadius: 6 }}>
+                {activateResult.ok ? `Aktiválva. n8n: ${activateResult.n8n || 'skipped'}` : `Hiba: ${activateResult.msg}`}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Run history (edit mode only) ── */}
+        {isEdit && (
+          <div style={{ background: CARD, borderRadius: 16, border: `1px solid ${BORDER}`, padding: '1.5rem', marginTop: '1.5rem', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                Futtatási előzmények
+              </div>
+              <button onClick={loadRuns} style={{ background: 'none', border: 'none', color: MUTED, fontSize: 12, cursor: 'pointer' }}>↻</button>
+            </div>
+            {runsLoading ? (
+              <div style={{ color: MUTED, fontSize: 13, textAlign: 'center', padding: 20 }}>Betöltés…</div>
+            ) : runs.length === 0 ? (
+              <div style={{ color: MUTED, fontSize: 13, textAlign: 'center', padding: 20 }}>Nincs futtatási előzmény</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {runs.map(run => (
+                  <div key={run.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: '8px 12px', border: `1px solid ${BORDER}`, fontSize: 12 }}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                      background: run.status === 'success' ? 'rgba(16,185,129,0.15)' : run.status === 'failed' ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                      color: run.status === 'success' ? '#10b981' : run.status === 'failed' ? '#ef4444' : '#f59e0b',
+                    }}>{run.status || 'unknown'}</span>
+                    <span style={{ color: TEXT, flex: 1 }}>{run.action_taken || '—'}</span>
+                    {run.confidence != null && <span style={{ color: MUTED }}>{Math.round(run.confidence * 100)}%</span>}
+                    {run.processing_time_ms != null && <span style={{ color: MUTED }}>{run.processing_time_ms}ms</span>}
+                    <span style={{ color: MUTED }}>{run.created_at ? new Date(run.created_at).toLocaleString('hu-HU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
     </div>
   )

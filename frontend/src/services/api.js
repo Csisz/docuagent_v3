@@ -196,6 +196,22 @@ export const api = {
   // ── RAG statistics ─────────────────────────────────────────
   ragStats: (days = 7) => req(`/api/rag-stats?days=${days}`),
 
+  // ── OCR pipeline ─────────────────────────────────────────
+  triggerEmailOCR: (emailId) =>
+    req(`/api/emails/${emailId}/ocr`, { method: 'POST' }),
+  getOCRJobs: (limit = 50, status = null) =>
+    req(`/api/ocr/jobs?limit=${limit}${status ? `&status=${status}` : ''}`),
+  getOCRJob: (jobId) =>
+    req(`/api/ocr/jobs/${jobId}`),
+  batchOCR: (emailIds, forceRerun = false) =>
+    req('/api/ocr/batch', { method: 'POST', body: JSON.stringify({ email_ids: emailIds, force_rerun: forceRerun }) }),
+
+  // ── Agent runtime ─────────────────────────────────────────
+  activateAgent: (agentId) =>
+    req(`/api/agents/${agentId}/activate`, { method: 'POST' }),
+  getAgentRuns: (agentId, limit = 50) =>
+    req(`/api/agents/${agentId}/runs?limit=${limit}`),
+
   // ── Tenant API key management ─────────────────────────────
   listApiKeys: () =>
     req('/api/keys'),
